@@ -1,8 +1,10 @@
-import os, requests, time
+import os, requests, time, logging
 from datetime import date, datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 BASE_URL = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
 AUTH     = (os.getenv("JIRA_EMAIL", ""), os.getenv("JIRA_API_TOKEN", ""))
@@ -13,13 +15,18 @@ _cache = {"data": [], "ts": 0}
 TTL = 600
 
 def _get(path, params=None):
-    r = requests.get(f"{BASE_URL}/rest/api/3{path}", auth=AUTH, params=params, timeout=15)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get(f"{BASE_URL}/rest/api/3{path}", auth=AUTH, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        log.error(f"Jira API error: {e}")
+        raise
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
     issues, start = [], 0
+    log.info(f"Fetching issues for projects: {projects_jql}")
     while True:
         res = _get("/search", {
             "jql": f"project in ({projects_jql}) ORDER BY updated DESC",
@@ -27,6 +34,7 @@ def _fetch_all():
         })
         issues += res["issues"]
         start += 100
+        log.info(f"Fetched {len(issues)}/{res['total']} issues")
         if start >= res["total"]: break
     return issues
 
@@ -103,8 +111,15 @@ def _parse(raw):
 def get_issues(force=False):
     now = time.time()
     if force or now - _cache["ts"] > TTL or not _cache["data"]:
-        _cache["data"] = [_parse(i) for i in _fetch_all()]
-        _cache["ts"] = now
+        try:
+            _cache["data"] = [_parse(i) for i in _fetch_all()]
+            _cache["ts"] = now
+            log.info(f"Cache updated: {len(_cache['data'])} issues")
+        except Exception as e:
+            log.error(f"Failed to fetch issues: {e}")
+            # Return stale cache if available, else empty
+            if not _cache["data"]:
+                return []
     return _cache["data"]
 
 def get_labels(issues):

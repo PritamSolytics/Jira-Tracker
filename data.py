@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 BASE_URL = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
 AUTH     = (os.getenv("JIRA_EMAIL", ""), os.getenv("JIRA_API_TOKEN", ""))
 PROJECTS = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
-FIELDS   = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10014,customfield_10015,customfield_10016,fixVersions,sprint"
+FIELDS   = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10015,customfield_10016,fixVersions,sprint"
 
 _cache = {"data": [], "ts": 0}
 TTL = 600
@@ -26,36 +26,36 @@ def _get(path, params=None):
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
     issues, start = [], 0
-    log.info(f"Fetching issues for projects: {projects_jql}")
+    # Only last 90 days to keep volume manageable
+    jql = f"project in ({projects_jql}) AND updated >= -90d ORDER BY updated DESC"
+    log.info(f"Fetching: {jql}")
     while True:
-        res = _get("/search", {
-            "jql": f"project in ({projects_jql}) ORDER BY updated DESC",
-            "fields": FIELDS, "maxResults": 100, "startAt": start
-        })
+        res = _get("/search", {"jql": jql, "fields": FIELDS, "maxResults": 100, "startAt": start})
         issues += res["issues"]
         start += 100
-        log.info(f"Fetched {len(issues)}/{res['total']} issues")
+        log.info(f"Fetched {len(issues)}/{res['total']}")
         if start >= res["total"]: break
     return issues
 
 def _parse(raw):
     f = raw["fields"]
     assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
-    reporter = (f.get("reporter") or {}).get("displayName", "")
-    due = f.get("duedate") or ""
-    updated = (f.get("updated") or "")[:10]
-    created = (f.get("created") or "")[:10]
-    today = date.today()
+    reporter  = (f.get("reporter") or {}).get("displayName", "")
+    due       = f.get("duedate") or ""
+    updated   = (f.get("updated") or "")[:10]
+    created   = (f.get("created") or "")[:10]
+    today     = date.today()
 
     try: days_stale = (today - date.fromisoformat(updated)).days
     except: days_stale = 0
 
     if due:
         dd = date.fromisoformat(due)
-        if f.get("status", {}).get("name") == "Closed": due_flag = "Closed"
-        elif dd < today: due_flag = f"Past Due Date ({(today-dd).days}d)"
-        elif (dd - today).days <= 7: due_flag = "Due This Week"
-        else: due_flag = "On Track"
+        st = f.get("status", {}).get("name", "")
+        if st == "Closed":       due_flag = "Closed"
+        elif dd < today:         due_flag = f"Past Due Date ({(today-dd).days}d)"
+        elif (dd-today).days<=7: due_flag = "Due This Week"
+        else:                    due_flag = "On Track"
     else:
         due_flag = "No Due Date"
 
@@ -73,14 +73,12 @@ def _parse(raw):
     links = []
     for lnk in f.get("issuelinks", []):
         lt = lnk.get("type", {}).get("name", "")
-        if "inwardIssue" in lnk:
-            links.append({"type": lt, "direction": "inward", "key": lnk["inwardIssue"]["key"]})
-        if "outwardIssue" in lnk:
-            links.append({"type": lt, "direction": "outward", "key": lnk["outwardIssue"]["key"]})
+        if "inwardIssue"  in lnk: links.append({"type": lt, "direction": "inward",  "key": lnk["inwardIssue"]["key"]})
+        if "outwardIssue" in lnk: links.append({"type": lt, "direction": "outward", "key": lnk["outwardIssue"]["key"]})
 
-    labels = f.get("labels", []) or []
+    labels     = f.get("labels", []) or []
     sprint_raw = f.get("sprint") or {}
-    sprint = sprint_raw.get("name", "") if isinstance(sprint_raw, dict) else ""
+    sprint     = sprint_raw.get("name", "") if isinstance(sprint_raw, dict) else ""
 
     return {
         "key":            raw["key"],
@@ -116,17 +114,14 @@ def get_issues(force=False):
             _cache["ts"] = now
             log.info(f"Cache updated: {len(_cache['data'])} issues")
         except Exception as e:
-            log.error(f"Failed to fetch issues: {e}")
-            # Return stale cache if available, else empty
-            if not _cache["data"]:
-                return []
+            log.error(f"Failed to fetch: {e}")
     return _cache["data"]
 
 def get_labels(issues):
-    labels = set()
+    s = set()
     for i in issues:
-        for l in i["labels"]: labels.add(l)
-    return sorted(labels)
+        for l in i["labels"]: s.add(l)
+    return sorted(s)
 
 def get_assignees(issues): return sorted(set(i["assignee"] for i in issues))
 def get_projects(issues):  return sorted(set(i["project"]  for i in issues))

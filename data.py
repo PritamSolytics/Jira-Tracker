@@ -16,7 +16,7 @@ TTL = 600
 
 def _get(path, params=None):
     try:
-        r = requests.get(f"{BASE_URL}/rest/api/3{path}", auth=AUTH, params=params, timeout=30)
+        r = requests.get(f"{BASE_URL}/rest/api/2{path}", auth=AUTH, params=params, timeout=30)
         r.raise_for_status()
         return r.json()
     except requests.exceptions.RequestException as e:

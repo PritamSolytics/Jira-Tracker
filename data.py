@@ -15,9 +15,7 @@ PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
 BASIC     = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
 HEADERS   = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
 
-FIELDS    = ["summary","issuetype","status","assignee","reporter","priority","labels",
-             "created","updated","duedate","comment","issuelinks","parent",
-             "customfield_10015","customfield_10016","fixVersions","sprint"]
+FIELDS    = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10015,customfield_10016,fixVersions,sprint"
 
 _cache = {"data": [], "ts": 0}
 TTL = 600
@@ -27,22 +25,20 @@ def _fetch_all():
     jql = f"project in ({projects_jql}) AND updated >= -90d ORDER BY updated DESC"
     log.info(f"Fetching: {jql}")
     issues, start = [], 0
-
-    # New Atlassian /search/jql endpoint (POST)
     url = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
 
     while True:
-        payload = {
+        # /search/jql uses GET with query params, not POST
+        params = {
             "jql": jql,
             "fields": FIELDS,
             "maxResults": 100,
             "startAt": start,
-            "expand": []
         }
-        r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
+        r = requests.get(url, headers=HEADERS, params=params, timeout=30)
         log.info(f"Status: {r.status_code}")
         if r.status_code != 200:
-            log.error(f"Error body: {r.text[:300]}")
+            log.error(f"Error: {r.text[:500]}")
             r.raise_for_status()
         res = r.json()
         batch = res.get("issues", [])

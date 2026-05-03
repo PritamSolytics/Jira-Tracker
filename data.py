@@ -1,4 +1,4 @@
-import os, requests, time, logging
+import os, requests, time, logging, base64
 from datetime import date, datetime
 from dotenv import load_dotenv
 
@@ -8,26 +8,42 @@ log = logging.getLogger(__name__)
 
 CLOUD_ID = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
 BASE_URL  = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
-API_BASE  = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}"
-AUTH      = (os.getenv("JIRA_EMAIL", ""), os.getenv("JIRA_API_TOKEN", ""))
+EMAIL     = os.getenv("JIRA_EMAIL", "")
+TOKEN     = os.getenv("JIRA_API_TOKEN", "")
 PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
 FIELDS    = ["summary","issuetype","status","assignee","reporter","priority","labels",
              "created","updated","duedate","comment","issuelinks","parent",
              "customfield_10015","customfield_10016","fixVersions","sprint"]
 
+# Try both auth methods
+BASIC_TOKEN = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
+
 _cache = {"data": [], "ts": 0}
 TTL = 600
 
+ENDPOINTS = [
+    # (url_template, headers, use_post)
+    (f"{BASE_URL}/rest/api/3/search",                               {"Authorization": f"Basic {BASIC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}, True),
+    (f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search", {"Authorization": f"Basic {BASIC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}, True),
+    (f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search", {"Authorization": f"Bearer {TOKEN}",        "Accept": "application/json", "Content-Type": "application/json"}, True),
+]
+
 def _search(jql, start=0):
-    r = requests.post(
-        f"{API_BASE}/rest/api/3/search",
-        auth=AUTH,
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
-        json={"jql": jql, "fields": FIELDS, "maxResults": 100, "startAt": start},
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()
+    payload = {"jql": jql, "fields": FIELDS, "maxResults": 100, "startAt": start}
+    last_err = None
+    for url, headers, use_post in ENDPOINTS:
+        try:
+            if use_post:
+                r = requests.post(url, headers=headers, json=payload, timeout=30)
+            else:
+                r = requests.get(url, headers=headers, params={"jql":jql,"fields":",".join(FIELDS),"maxResults":100,"startAt":start}, timeout=30)
+            log.info(f"Tried {url[:60]} → {r.status_code}")
+            if r.status_code == 200:
+                return r.json()
+            last_err = f"{r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            last_err = str(e)
+    raise Exception(f"All endpoints failed. Last error: {last_err}")
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)

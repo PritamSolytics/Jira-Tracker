@@ -1,5 +1,5 @@
 import plotly.graph_objects as go
-import plotly.express as px
+
 from collections import Counter, defaultdict
 from components import sc, tc, pc, STATUS_CLR, TYPE_CLR, PRIO_CLR
 
@@ -33,7 +33,7 @@ def assignee_stacked(issues, labels):
             a_l[i["assignee"]][l] += 1
     assignees = sorted(a_l, key=lambda a: -sum(a_l[a].values()))[:20]
     all_labels = sorted(set(l for c in a_l.values() for l in c))
-    colors = px.colors.qualitative.Set3
+    colors = ["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#6366f1","#22c55e","#f97316","#ec4899","#14b8a6","#84cc16","#a855f7"]
     traces = [go.Bar(
         name=l, x=assignees, y=[a_l[a][l] for a in assignees],
         marker_color=colors[i % len(colors)],

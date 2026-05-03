@@ -3,6 +3,7 @@ from dash import dcc, html, Input, Output, State, callback_context, dash_table
 import dash_cytoscape as cyto
 import plotly.graph_objects as go
 from collections import Counter, defaultdict
+import threading
 
 import data as D
 import components as C
@@ -15,10 +16,12 @@ app = dash.Dash(__name__, suppress_callback_exceptions=True,
 app.title = "Jira Dashboard"
 server = app.server
 
-# ── Shared style tokens ────────────────────────────────────────
 BG, SURFACE, BORDER = "#0f172a", "#111827", "#1e293b"
 TEXT, MUTED = "#e2e8f0", "#64748b"
 FONT = "IBM Plex Mono, monospace"
+
+# Pre-warm cache at startup in background
+threading.Thread(target=D.get_issues, daemon=True).start()
 
 SIDEBAR = html.Nav([
     html.Div("JIRA OPERATIONS", style={
@@ -47,13 +50,13 @@ SIDEBAR = html.Nav([
 TOPBAR = html.Div([
     html.Div(id="page-title", style={"fontWeight":"700","fontSize":"0.95rem","color":TEXT}),
     html.Div([
-        dcc.Dropdown(id="g-project",  placeholder="Project",   multi=True, clearable=True, style={"minWidth":"120px","fontSize":"0.78rem"}),
-        dcc.Dropdown(id="g-label",    placeholder="Label",     multi=True, clearable=True, style={"minWidth":"150px","fontSize":"0.78rem"}),
-        dcc.Dropdown(id="g-assignee", placeholder="Assignee",  multi=True, clearable=True, style={"minWidth":"150px","fontSize":"0.78rem"}),
-        dcc.Dropdown(id="g-type",     placeholder="Issue Type", multi=True, clearable=True,
+        dcc.Dropdown(id="g-project",  placeholder="Project",    multi=True, clearable=True, style={"minWidth":"120px","fontSize":"0.78rem"}),
+        dcc.Dropdown(id="g-label",    placeholder="Label",      multi=True, clearable=True, style={"minWidth":"150px","fontSize":"0.78rem"}),
+        dcc.Dropdown(id="g-assignee", placeholder="Assignee",   multi=True, clearable=True, style={"minWidth":"150px","fontSize":"0.78rem"}),
+        dcc.Dropdown(id="g-type",     placeholder="Issue Type",  multi=True, clearable=True,
                      options=[{"label":t,"value":t} for t in ["Task","Story","Bug","Sub-task","Epic"]],
                      style={"minWidth":"140px","fontSize":"0.78rem"}),
-        dcc.Dropdown(id="g-status",   placeholder="Status",    multi=True, clearable=True,
+        dcc.Dropdown(id="g-status",   placeholder="Status",     multi=True, clearable=True,
                      options=[{"label":s,"value":s} for s in C.STATUS_CLR],
                      style={"minWidth":"150px","fontSize":"0.78rem"}),
         html.Button("↻ Refresh", id="btn-refresh", n_clicks=0, style={
@@ -68,40 +71,28 @@ TOPBAR = html.Div([
     "background":SURFACE,"position":"sticky","top":"0","zIndex":"100",
 })
 
-DRAWER = html.Div([
-    html.Button("✕", id="drawer-close", style={
-        "position":"absolute","top":"12px","right":"12px","background":"none",
-        "border":"none","color":MUTED,"fontSize":"1rem","cursor":"pointer",
-    }),
-    html.Div(id="drawer-content"),
-], id="drawer", style={
-    "position":"fixed","right":"0","top":"0","height":"100vh","width":"360px",
-    "background":SURFACE,"borderLeft":f"1px solid {BORDER}","zIndex":"200",
-    "overflowY":"auto","display":"none","boxShadow":"-8px 0 32px rgba(0,0,0,0.4)",
-})
-
 app.layout = html.Div([
     dcc.Location(id="url"),
     dcc.Store(id="store-issues"),
-    dcc.Store(id="store-selected-issue"),
     dcc.Interval(id="auto-refresh", interval=600_000, n_intervals=0),
+    dcc.Interval(id="init-refresh", interval=3000, n_intervals=0, max_intervals=5),
     html.Div([SIDEBAR, html.Div([TOPBAR, html.Div(id="page-content", style={"padding":"20px 24px","flex":"1"})],
              style={"flex":"1","display":"flex","flexDirection":"column","overflow":"hidden"})],
              style={"display":"flex","fontFamily":FONT,"background":BG,"color":TEXT,"minHeight":"100vh"}),
-    DRAWER,
 ], style={"fontFamily":FONT})
 
 
-# ── Data load ──────────────────────────────────────────────────
 @app.callback(
     Output("store-issues","data"), Output("sync-ts","children"),
     Output("g-label","options"),  Output("g-assignee","options"), Output("g-project","options"),
-    Input("btn-refresh","n_clicks"), Input("auto-refresh","n_intervals"),
+    Input("btn-refresh","n_clicks"), Input("auto-refresh","n_intervals"), Input("init-refresh","n_intervals"),
     prevent_initial_call=False,
 )
-def load_data(n, _):
+def load_data(n, _, init):
     force = callback_context.triggered_id == "btn-refresh"
     issues = D.get_issues(force=force)
+    if not issues:
+        return [], "Fetching data...", [], [], []
     labels    = [{"label":l,"value":l} for l in D.get_labels(issues)]
     assignees = [{"label":a,"value":a} for a in D.get_assignees(issues)]
     projects  = [{"label":p,"value":p} for p in D.get_projects(issues)]
@@ -118,48 +109,47 @@ def filter_issues(issues, labels, assignees, types, statuses, projects=None):
     return r
 
 
-# ── Router ─────────────────────────────────────────────────────
 @app.callback(
     Output("page-content","children"), Output("page-title","children"),
-    Input("url","pathname"),
-    Input("store-issues","data"),
+    Input("url","pathname"), Input("store-issues","data"),
     Input("g-label","value"), Input("g-assignee","value"),
     Input("g-type","value"),  Input("g-status","value"), Input("g-project","value"),
 )
 def route(path, issues, labels, assignees, types, statuses, projects):
-    if not issues: return html.Div("Loading…"), ""
+    if not issues:
+        return html.Div([
+            html.Div("Connecting to Jira...", style={"color":MUTED,"fontSize":"0.9rem","marginBottom":"8px"}),
+            html.Div("Data loads in ~10 seconds on first visit.", style={"color":"#334155","fontSize":"0.75rem"}),
+        ], style={"padding":"40px","textAlign":"center"}), ""
     f = filter_issues(issues, labels or [], assignees or [], types or [], statuses or [], projects or [])
     pages = {
-        "/":            (page_overview,     "Overview"),
-        "/items":       (page_items,        "Work Items"),
-        "/labels":      (page_labels,       "By Label"),
-        "/assignee":    (page_assignee,     "By Assignee"),
-        "/dependencies":(page_deps,         "Dependencies"),
-        "/timeline":    (page_timeline,     "Timeline"),
-        "/alerts":      (page_alerts,       "Alerts"),
-        "/settings":    (page_settings,     "Settings"),
+        "/":            (page_overview,  "Overview"),
+        "/items":       (page_items,     "Work Items"),
+        "/labels":      (page_labels,    "By Label"),
+        "/assignee":    (page_assignee,  "By Assignee"),
+        "/dependencies":(page_deps,      "Dependencies"),
+        "/timeline":    (page_timeline,  "Timeline"),
+        "/alerts":      (page_alerts,    "Alerts"),
+        "/settings":    (page_settings,  "Settings"),
     }
     fn, title = pages.get(path, pages["/"])
     return fn(f, issues), title
 
 
-# ════════════════════════════════════════════════════════════════
-# PAGE BUILDERS
-# ════════════════════════════════════════════════════════════════
 def _graph(fig, id, h=340): return dcc.Graph(figure=fig, id=id, style={"height":f"{h}px"}, config={"displayModeBar":False})
 def _card(*children, cols=1): return html.Div(children, style={"background":SURFACE,"borderRadius":"8px","border":f"1px solid {BORDER}","padding":"16px","gridColumn":f"span {cols}"})
 def _grid(*cards, cols=2): return html.Div(cards, style={"display":"grid","gridTemplateColumns":f"repeat({cols},1fr)","gap":"16px","marginTop":"16px"})
 
 
 def page_overview(issues, _all):
-    closed = sum(1 for i in issues if i["status"]=="Closed")
-    overdue = sum(1 for i in issues if "Past Due" in i["due_flag"])
-    bugs = sum(1 for i in issues if i["type"]=="Bug")
+    closed   = sum(1 for i in issues if i["status"]=="Closed")
+    overdue  = sum(1 for i in issues if "Past Due" in i["due_flag"])
+    bugs     = sum(1 for i in issues if i["type"]=="Bug")
     unassigned = sum(1 for i in issues if i["assignee"]=="Unassigned")
-    stale = sum(1 for i in issues if i["days_stale"]>7 and i["status"]!="Closed")
-    in_dev = sum(1 for i in issues if i["status"]=="Development In Progress")
-    in_qa  = sum(1 for i in issues if "QA" in i["status"])
-    pct = round(closed/len(issues)*100,1) if issues else 0
+    stale    = sum(1 for i in issues if i["days_stale"]>7 and i["status"]!="Closed")
+    in_dev   = sum(1 for i in issues if i["status"]=="Development In Progress")
+    in_qa    = sum(1 for i in issues if "QA" in i["status"])
+    pct      = round(closed/len(issues)*100,1) if issues else 0
 
     kpis = html.Div([
         C.kpi("Total Issues",  len(issues), "#3b82f6"),
@@ -172,7 +162,6 @@ def page_overview(issues, _all):
         C.kpi("Stale >7d",     stale,       "#64748b"),
     ], style={"display":"flex","gap":"12px","flexWrap":"wrap"})
 
-    # Label summary table
     by_label = defaultdict(lambda: {"total":0,"open":0,"past_due":0,"bugs":0,"closed":0})
     for i in issues:
         for l in (i["labels"] or ["(No Label)"]):
@@ -183,8 +172,7 @@ def page_overview(issues, _all):
             if i["status"] == "Closed": by_label[l]["closed"] += 1
 
     tbl = html.Table([
-        html.Thead(html.Tr([html.Th(h) for h in ["Label","Total","Open","Closed","Past Due Date","Bugs"]],
-                   style={"background":"#1e293b"})),
+        html.Thead(html.Tr([html.Th(h) for h in ["Label","Total","Open","Closed","Past Due Date","Bugs"]], style={"background":"#1e293b"})),
         html.Tbody([html.Tr([
             html.Td(l), html.Td(d["total"]), html.Td(d["open"]),
             html.Td(d["closed"]), html.Td(d["past_due"],style={"color":"#ef4444"} if d["past_due"] else {}),
@@ -192,7 +180,7 @@ def page_overview(issues, _all):
         ]) for l,d in sorted(by_label.items(), key=lambda x: -x[1]["total"])]),
     ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.78rem"})
 
-    activity = sorted([i for i in issues], key=lambda x: x["updated"], reverse=True)[:10]
+    activity = sorted(issues, key=lambda x: x["updated"], reverse=True)[:10]
     feed = html.Div([
         html.Div([
             html.A(i["key"], href=i["url"], target="_blank",
@@ -206,18 +194,8 @@ def page_overview(issues, _all):
 
     return html.Div([
         kpis,
-        _grid(
-            _card(C.section("Label Summary"), tbl, cols=2),
-            _card(C.section("Live Activity Feed"), feed),
-            _card(_graph(CH.status_bar(issues), "ov-status")),
-            cols=3
-        ),
-        _grid(
-            _card(_graph(CH.type_donut(issues), "ov-type")),
-            _card(_graph(CH.priority_donut(issues), "ov-prio")),
-            _card(_graph(CH.velocity_line(issues), "ov-vel")),
-            cols=3
-        ),
+        _grid(_card(C.section("Label Summary"), tbl, cols=2), _card(C.section("Live Activity Feed"), feed), _card(_graph(CH.status_bar(issues), "ov-status")), cols=3),
+        _grid(_card(_graph(CH.type_donut(issues), "ov-type")), _card(_graph(CH.priority_donut(issues), "ov-prio")), _card(_graph(CH.velocity_line(issues), "ov-vel")), cols=3),
     ])
 
 
@@ -229,7 +207,7 @@ def page_items(issues, _):
         dash_table.DataTable(
             id="items-table",
             data=[{h:i.get(c,"") for h,c in zip(hdrs,cols)} for i in issues],
-            columns=[{"name":h,"id":h,"presentation":"markdown" if h=="Key" else "input"} for h in hdrs],
+            columns=[{"name":h,"id":h} for h in hdrs],
             page_size=50, filter_action="native", sort_action="native",
             style_table={"overflowX":"auto"},
             style_cell={"background":SURFACE,"color":TEXT,"border":f"1px solid {BORDER}",
@@ -239,7 +217,6 @@ def page_items(issues, _):
             style_data_conditional=[
                 {"if":{"filter_query":"{Due Flag} contains 'Past Due'"},"color":"#ef4444"},
                 {"if":{"filter_query":"{Type} = 'Bug'"},"color":"#f97316"},
-                {"if":{"filter_query":"{Days Stale} > 7 && {Status} != 'Closed'"},"backgroundColor":"#1c1917"},
                 {"if":{"row_index":"odd"},"backgroundColor":"#0f172a"},
             ],
             style_as_list_view=True,
@@ -251,33 +228,25 @@ def page_labels(issues, _all):
     by_label = defaultdict(list)
     for i in issues:
         for l in (i["labels"] or ["(No Label)"]): by_label[l].append(i)
-
     panels = []
     for label, items in sorted(by_label.items(), key=lambda x: -len(x[1])):
-        closed = sum(1 for i in items if i["status"]=="Closed")
+        closed  = sum(1 for i in items if i["status"]=="Closed")
         overdue = sum(1 for i in items if "Past Due" in i["due_flag"])
-        bugs = sum(1 for i in items if i["type"]=="Bug")
+        bugs    = sum(1 for i in items if i["type"]=="Bug")
         panels.append(_card(
-            html.Div([
-                html.Span(label, style={"fontWeight":"700","fontSize":"0.9rem","color":TEXT}),
-                html.Span(f"{len(items)} issues", style={"color":MUTED,"fontSize":"0.72rem","marginLeft":"8px"}),
-            ]),
-            html.Div([
-                C.kpi("Open",     len(items)-closed, "#3b82f6"),
-                C.kpi("Closed",   closed,            "#16a34a"),
-                C.kpi("Past Due", overdue,           "#ef4444"),
-                C.kpi("Bugs",     bugs,              "#f97316"),
-            ], style={"display":"flex","gap":"8px","margin":"12px 0"}),
+            html.Div([html.Span(label, style={"fontWeight":"700","fontSize":"0.9rem","color":TEXT}),
+                      html.Span(f"{len(items)} issues", style={"color":MUTED,"fontSize":"0.72rem","marginLeft":"8px"})]),
+            html.Div([C.kpi("Open",len(items)-closed,"#3b82f6"), C.kpi("Closed",closed,"#16a34a"),
+                      C.kpi("Past Due",overdue,"#ef4444"), C.kpi("Bugs",bugs,"#f97316")],
+                     style={"display":"flex","gap":"8px","margin":"12px 0"}),
             _graph(CH.status_bar(items), f"lbl-{label.replace(' ','-')}", h=200),
         ))
-
     return html.Div([C.section("Initiatives"), html.Div(panels, style={"display":"grid","gridTemplateColumns":"repeat(auto-fill,minmax(400px,1fr))","gap":"16px"})])
 
 
 def page_assignee(issues, _all):
     by_a = defaultdict(list)
     for i in issues: by_a[i["assignee"]].append(i)
-
     rows = []
     for a, items in sorted(by_a.items(), key=lambda x: -len(x[1])):
         by_lbl = defaultdict(list)
@@ -289,30 +258,18 @@ def page_assignee(issues, _all):
         stale   = round(sum(i["days_stale"] for i in items if i["status"]!="Closed") / max(1,len([i for i in items if i["status"]!="Closed"])),1)
         lbl_breakdown = " | ".join(f"{l}: {len(v)}" for l,v in sorted(by_lbl.items(), key=lambda x: -len(x[1])))
         rows.append(html.Div([
-            html.Div([
-                html.Span(a, style={"fontWeight":"700","fontSize":"0.85rem"}),
-                html.Span(f"{len(items)} total", style={"color":MUTED,"fontSize":"0.72rem","marginLeft":"8px"}),
-            ]),
+            html.Div([html.Span(a, style={"fontWeight":"700","fontSize":"0.85rem"}),
+                      html.Span(f"{len(items)} total", style={"color":MUTED,"fontSize":"0.72rem","marginLeft":"8px"})]),
             html.Div(lbl_breakdown, style={"color":MUTED,"fontSize":"0.7rem","margin":"4px 0 8px"}),
-            html.Div([
-                C.kpi("Open",    len(items)-closed, "#3b82f6"),
-                C.kpi("Closed",  closed,            "#16a34a"),
-                C.kpi("Past Due",overdue,           "#ef4444"),
-                C.kpi("Bugs",    bugs,              "#f97316"),
-                C.kpi("Avg Stale",f"{stale}d",     "#64748b"),
-            ], style={"display":"flex","gap":"8px","flexWrap":"wrap"}),
-        ], style={"background":SURFACE,"border":f"1px solid {BORDER}","borderRadius":"8px",
-                  "padding":"16px","marginBottom":"10px"}))
-
+            html.Div([C.kpi("Open",len(items)-closed,"#3b82f6"), C.kpi("Closed",closed,"#16a34a"),
+                      C.kpi("Past Due",overdue,"#ef4444"), C.kpi("Bugs",bugs,"#f97316"),
+                      C.kpi("Avg Stale",f"{stale}d","#64748b")],
+                     style={"display":"flex","gap":"8px","flexWrap":"wrap"}),
+        ], style={"background":SURFACE,"border":f"1px solid {BORDER}","borderRadius":"8px","padding":"16px","marginBottom":"10px"}))
     return html.Div([
-        _grid(
-            _card(_graph(CH.bubble_chart(issues), "a-bubble", h=380)),
-            _card(_graph(CH.heatmap(issues),      "a-heat",   h=380)),
-            cols=2
-        ),
+        _grid(_card(_graph(CH.bubble_chart(issues), "a-bubble", h=380)), _card(_graph(CH.heatmap(issues), "a-heat", h=380)), cols=2),
         _card(_graph(CH.assignee_stacked(issues, D.get_labels(issues)), "a-stack", h=340)),
-        C.section("Per Assignee Detail"),
-        html.Div(rows),
+        C.section("Per Assignee Detail"), html.Div(rows),
     ])
 
 
@@ -320,24 +277,16 @@ def page_deps(issues, _all):
     elements = C.cyto_elements(issues)
     return html.Div([
         C.section(f"Dependency Network — {len(issues)} Issues"),
+        html.Div([dcc.Dropdown(id="dep-layout", value="cose", clearable=False,
+                               options=[{"label":l,"value":l} for l in ["cose","breadthfirst","circle","grid","concentric"]],
+                               style={"width":"180px","fontSize":"0.78rem"})], style={"marginBottom":"10px"}),
         html.Div([
-            dcc.Dropdown(id="dep-layout", value="cose", clearable=False,
-                         options=[{"label":l,"value":l} for l in ["cose","breadthfirst","circle","grid","concentric"]],
-                         style={"width":"180px","fontSize":"0.78rem"}),
-        ], style={"marginBottom":"10px"}),
-        html.Div([
-            cyto.Cytoscape(
-                id="cyto-graph",
-                elements=elements,
-                layout={"name":"cose","animate":True,"animationDuration":500},
-                style={"height":"600px","flex":"1","background":"#0d1117","borderRadius":"8px"},
-                stylesheet=C.CYTO_STYLE,
-                responsive=True,
-            ),
-            html.Div(id="cyto-detail", style={
-                "width":"300px","background":SURFACE,"borderRadius":"8px",
-                "border":f"1px solid {BORDER}","overflowY":"auto","maxHeight":"600px",
-            }),
+            cyto.Cytoscape(id="cyto-graph", elements=elements,
+                           layout={"name":"cose","animate":True,"animationDuration":500},
+                           style={"height":"600px","flex":"1","background":"#0d1117","borderRadius":"8px"},
+                           stylesheet=C.CYTO_STYLE, responsive=True),
+            html.Div(id="cyto-detail", style={"width":"300px","background":SURFACE,"borderRadius":"8px",
+                                               "border":f"1px solid {BORDER}","overflowY":"auto","maxHeight":"600px"}),
         ], style={"display":"flex","gap":"16px"}),
     ])
 
@@ -346,68 +295,49 @@ def page_timeline(issues, _all):
     from datetime import date, timedelta
     today = date.today()
     dated = sorted([i for i in issues if i["due"]], key=lambda x: x["due"])
-    if not dated:
-        return html.Div("No issues with Due Date set.", style={"color":MUTED})
-
+    if not dated: return html.Div("No issues with Due Date set.", style={"color":MUTED})
     fig = go.Figure()
     for i in dated:
         start = i.get("created", str(today - timedelta(days=7)))
-        color = C.sc(i["status"])
         fig.add_trace(go.Bar(
-            x=[(i["due"] if i["due"] else str(today))],
-            y=[f"{i['assignee']} / {i['key']}"],
-            orientation="h", marker_color=color, width=0.5,
+            x=[i["due"]], y=[f"{i['assignee']} / {i['key']}"], orientation="h",
+            marker_color=C.sc(i["status"]), width=0.5,
             hovertemplate=f"<b>{i['key']}</b><br>{i['summary'][:60]}<br>Status: {i['status']}<br>Due: {i['due']}<extra></extra>",
             showlegend=False, base=[start],
         ))
-    fig.update_layout(**{**CH.LAYOUT, "height":max(400, len(dated)*22),
-                         "barmode":"overlay","title":"Timeline by Due Date"})
+    fig.update_layout(**{**CH.LAYOUT, "height":max(400,len(dated)*22),"barmode":"overlay","title":"Timeline by Due Date"})
     return html.Div([C.section(f"{len(dated)} Issues with Due Date"), dcc.Graph(figure=fig, config={"displayModeBar":False})])
 
 
 def page_alerts(issues, _all):
-    from datetime import date, timedelta
-    today = date.today()
-
     def _tbl(title, rows, color="#ef4444"):
         if not rows: return html.Div()
         return html.Div([
-            html.Div(f"{title} ({len(rows)})", style={
-                "fontSize":"0.72rem","fontWeight":"700","color":color,
-                "letterSpacing":"0.1em","textTransform":"uppercase","marginBottom":"8px","marginTop":"20px",
-            }),
+            html.Div(f"{title} ({len(rows)})", style={"fontSize":"0.72rem","fontWeight":"700","color":color,
+                     "letterSpacing":"0.1em","textTransform":"uppercase","marginBottom":"8px","marginTop":"20px"}),
             html.Table([
-                html.Thead(html.Tr([html.Th(h) for h in ["Key","Assignee","Status","Priority","Detail"]],
-                           style={"background":"#1e293b"})),
+                html.Thead(html.Tr([html.Th(h) for h in ["Key","Assignee","Status","Priority","Detail"]], style={"background":"#1e293b"})),
                 html.Tbody([html.Tr([
-                    html.Td(html.A(r["key"], href=r["url"], target="_blank",
-                                   style={"color":"#60a5fa","textDecoration":"none"})),
+                    html.Td(html.A(r["key"], href=r["url"], target="_blank", style={"color":"#60a5fa","textDecoration":"none"})),
                     html.Td(r["assignee"]), html.Td(r["status"],style={"color":C.sc(r["status"])}),
                     html.Td(r["priority"],style={"color":C.pc(r["priority"])}), html.Td(r.get("_detail","")),
                 ]) for r in rows]),
             ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.76rem"}),
         ])
-
     past_due   = [i for i in issues if "Past Due" in i["due_flag"] and i["status"]!="Closed"]
     no_act     = [i for i in issues if i["days_stale"]>7 and i["status"] not in ("Closed","Rejected")]
     unassigned = [i for i in issues if i["assignee"]=="Unassigned" and i["status"]!="Closed"]
     crit_bugs  = [i for i in issues if i["type"]=="Bug" and i["priority"] in ("Highest","High") and i["status"]!="Closed"]
     no_label   = [i for i in issues if not i["labels"] and i["status"]!="Closed"]
     no_due     = [i for i in issues if not i["due"] and i["status"] not in ("Closed","Rejected","Groomed","To Do")]
-
     for i in past_due:  i["_detail"] = i["due_flag"]
     for i in no_act:    i["_detail"] = f"No update in {i['days_stale']}d"
     for i in crit_bugs: i["_detail"] = f"{i['priority']} Bug"
-
     return html.Div([
-        html.Div([
-            C.kpi("Past Due Date", len(past_due),   "#ef4444"),
-            C.kpi("No Activity >7d",len(no_act),   "#f97316"),
-            C.kpi("Unassigned",    len(unassigned), "#94a3b8"),
-            C.kpi("High/Highest Bugs",len(crit_bugs),"#dc2626"),
-            C.kpi("No Label",      len(no_label),  "#64748b"),
-            C.kpi("No Due Date (active)",len(no_due),"#475569"),
-        ], style={"display":"flex","gap":"12px","flexWrap":"wrap"}),
+        html.Div([C.kpi("Past Due Date",len(past_due),"#ef4444"), C.kpi("No Activity >7d",len(no_act),"#f97316"),
+                  C.kpi("Unassigned",len(unassigned),"#94a3b8"), C.kpi("High/Highest Bugs",len(crit_bugs),"#dc2626"),
+                  C.kpi("No Label",len(no_label),"#64748b"), C.kpi("No Due Date (active)",len(no_due),"#475569")],
+                 style={"display":"flex","gap":"12px","flexWrap":"wrap"}),
         _tbl("Past Due Date", past_due),
         _tbl("No Activity >7 Days", no_act, "#f97316"),
         _tbl("Unassigned Issues", unassigned, "#94a3b8"),
@@ -423,39 +353,30 @@ def page_settings(issues, _all):
         C.section("Configuration"),
         html.Div([
             html.Div("Tracked Labels", style={"color":MUTED,"fontSize":"0.72rem","marginBottom":"8px"}),
-            html.Div([html.Span(l, style={
-                "background":"#1e293b","border":f"1px solid {BORDER}","borderRadius":"4px",
-                "padding":"4px 10px","fontSize":"0.75rem","color":TEXT,"marginRight":"6px","marginBottom":"6px","display":"inline-block",
-            }) for l in labels]),
+            html.Div([html.Span(l, style={"background":"#1e293b","border":f"1px solid {BORDER}","borderRadius":"4px",
+                                          "padding":"4px 10px","fontSize":"0.75rem","color":TEXT,
+                                          "marginRight":"6px","marginBottom":"6px","display":"inline-block"}) for l in labels]),
         ], style={"background":SURFACE,"borderRadius":"8px","border":f"1px solid {BORDER}","padding":"20px","marginBottom":"16px"}),
         html.Div([
             html.Div("Connection", style={"color":MUTED,"fontSize":"0.72rem","marginBottom":"12px"}),
             *[html.Div([html.Span(k, style={"color":MUTED,"width":"180px","display":"inline-block","fontSize":"0.75rem"}),
-                         html.Span(v, style={"color":TEXT,"fontSize":"0.75rem"})],
-                        style={"marginBottom":"8px"})
-              for k,v in [("Jira URL", D.BASE_URL),("Project", D.PROJECT),("Cache TTL","10 min"),("Total Issues",len(issues))]],
+                        html.Span(v, style={"color":TEXT,"fontSize":"0.75rem"})], style={"marginBottom":"8px"})
+              for k,v in [("Jira URL",D.BASE_URL),("Projects",", ".join(D.PROJECTS)),
+                          ("Cache TTL","10 min"),("Total Issues",len(issues))]],
         ], style={"background":SURFACE,"borderRadius":"8px","border":f"1px solid {BORDER}","padding":"20px"}),
     ])
 
 
-# ── Cytoscape click → detail ────────────────────────────────────
-@app.callback(
-    Output("cyto-detail","children"),
-    Input("cyto-graph","tapNodeData"),
-    State("store-issues","data"),
-)
+@app.callback(Output("cyto-detail","children"), Input("cyto-graph","tapNodeData"), State("store-issues","data"))
 def cyto_click(node, issues):
     if not node or not issues: return html.Div("Click a node to see details.", style={"color":MUTED,"padding":"20px","fontSize":"0.78rem"})
     hit = next((i for i in issues if i["key"]==node["id"]), None)
     return C.issue_drawer(hit)
 
-
-# ── Cytoscape layout update ─────────────────────────────────────
 @app.callback(Output("cyto-graph","layout"), Input("dep-layout","value"))
 def cyto_layout(val): return {"name": val, "animate": True}
 
 
-# ── Global CSS ──────────────────────────────────────────────────
 app.index_string = '''
 <!DOCTYPE html>
 <html>
@@ -471,7 +392,6 @@ body { background: #0f172a; }
 table th, table td { border: 1px solid #1e293b; padding: 7px 12px; text-align: left; }
 table th { font-weight: 600; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
 table tr:hover td { background: #1e293b22; }
-.Select-control, .Select-menu-outer { background: #111827 !important; border-color: #1e293b !important; color: #e2e8f0 !important; }
 a:hover { opacity: 0.85; }
 nav a:hover { color: #60a5fa !important; border-left-color: #3b82f6 !important; background: #1e293b22; }
 </style>

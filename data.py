@@ -6,34 +6,36 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# Use Atlassian API gateway to avoid IP restrictions
 CLOUD_ID = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
 BASE_URL  = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
 API_BASE  = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}"
 AUTH      = (os.getenv("JIRA_EMAIL", ""), os.getenv("JIRA_API_TOKEN", ""))
 PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
-FIELDS    = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10015,customfield_10016,fixVersions,sprint"
+FIELDS    = ["summary","issuetype","status","assignee","reporter","priority","labels",
+             "created","updated","duedate","comment","issuelinks","parent",
+             "customfield_10015","customfield_10016","fixVersions","sprint"]
 
 _cache = {"data": [], "ts": 0}
 TTL = 600
 
-def _get(path, params=None):
-    try:
-        r = requests.get(f"{API_BASE}/rest/api/3{path}", auth=AUTH, params=params, timeout=30,
-                         headers={"Accept": "application/json"})
-        r.raise_for_status()
-        return r.json()
-    except requests.exceptions.RequestException as e:
-        log.error(f"Jira API error: {e}")
-        raise
+def _search(jql, start=0):
+    r = requests.post(
+        f"{API_BASE}/rest/api/3/search",
+        auth=AUTH,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        json={"jql": jql, "fields": FIELDS, "maxResults": 100, "startAt": start},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
-    issues, start = [], 0
     jql = f"project in ({projects_jql}) AND updated >= -90d ORDER BY updated DESC"
     log.info(f"Fetching: {jql}")
+    issues, start = [], 0
     while True:
-        res = _get("/search", {"jql": jql, "fields": FIELDS, "maxResults": 100, "startAt": start})
+        res = _search(jql, start)
         issues += res["issues"]
         start += 100
         log.info(f"Fetched {len(issues)}/{res['total']}")
@@ -55,10 +57,10 @@ def _parse(raw):
     if due:
         dd = date.fromisoformat(due)
         st = f.get("status", {}).get("name", "")
-        if st == "Closed":        due_flag = "Closed"
-        elif dd < today:          due_flag = f"Past Due Date ({(today-dd).days}d)"
+        if st == "Closed":         due_flag = "Closed"
+        elif dd < today:           due_flag = f"Past Due Date ({(today-dd).days}d)"
         elif (dd-today).days <= 7: due_flag = "Due This Week"
-        else:                     due_flag = "On Track"
+        else:                      due_flag = "On Track"
     else:
         due_flag = "No Due Date"
 

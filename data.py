@@ -6,45 +6,42 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-CLOUD_ID  = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
-BASE_URL  = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
-EMAIL     = os.getenv("JIRA_EMAIL", "")
-TOKEN     = os.getenv("JIRA_API_TOKEN", "")
-PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
+CLOUD_ID = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
+BASE_URL = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
+EMAIL    = os.getenv("JIRA_EMAIL", "")
+TOKEN    = os.getenv("JIRA_API_TOKEN", "")
+PROJECTS = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
 
 BASIC   = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
 HEADERS = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
 
-_cache = {"data": [], "ts": 0}
-TTL = 600
+FIELDS  = ["summary","issuetype","status","assignee","priority","labels",
+           "created","updated","duedate","comment","issuelinks","parent","fixVersions"]
+
+_cache  = {"data": [], "ts": 0}
+TTL     = 600
+URL     = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
     jql = f"project in ({projects_jql}) AND updated >= -90d ORDER BY updated DESC"
     log.info(f"Fetching: {jql}")
-    issues, start = [], 0
-    url = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
-
+    issues, next_token = [], None
     while True:
-        # fields must be comma-separated string, not list
-        body = {
-            "jql": jql,
-            "fields": "summary,issuetype,status,assignee,priority,labels,created,updated,duedate,comment,issuelinks,parent,fixVersions",
-            "maxResults": 50,
-            "startAt": start
-        }
-        r = requests.post(url, headers=HEADERS, json=body, timeout=60)
+        body = {"jql": jql, "fields": FIELDS, "maxResults": 50}
+        if next_token:
+            body["nextPageToken"] = next_token
+        r = requests.post(URL, headers=HEADERS, json=body, timeout=60)
         log.info(f"Status: {r.status_code}")
         if r.status_code != 200:
-            log.error(f"Error: {r.text[:500]}")
+            log.error(f"Error: {r.text[:300]}")
             r.raise_for_status()
         res = r.json()
         batch = res.get("issues", [])
         issues += batch
-        total = res.get("total", len(issues))
-        start += 50
-        log.info(f"Fetched {len(issues)}/{total}")
-        if start >= total or not batch: break
+        next_token = res.get("nextPageToken")
+        log.info(f"Got {len(batch)}, total so far: {len(issues)}, isLast: {res.get('isLast')}")
+        if res.get("isLast", True) or not batch: break
     return issues
 
 def _parse(raw):
@@ -54,10 +51,8 @@ def _parse(raw):
     updated  = (f.get("updated") or "")[:10]
     created  = (f.get("created") or "")[:10]
     today    = date.today()
-
     try: days_stale = (today - date.fromisoformat(updated)).days
     except: days_stale = 0
-
     if due:
         dd = date.fromisoformat(due)
         st = f.get("status", {}).get("name", "")
@@ -67,7 +62,6 @@ def _parse(raw):
         else:                      due_flag = "On Track"
     else:
         due_flag = "No Due Date"
-
     comments = f.get("comment", {}).get("comments", [])
     latest_comment = ""
     if comments:
@@ -80,15 +74,12 @@ def _parse(raw):
         elif isinstance(body, str):
             latest_comment = body
         latest_comment = latest_comment[:200].replace("\n", " ")
-
     links = []
     for lnk in f.get("issuelinks", []):
         lt = lnk.get("type", {}).get("name", "")
         if "inwardIssue"  in lnk: links.append({"type": lt, "direction": "inward",  "key": lnk["inwardIssue"]["key"]})
         if "outwardIssue" in lnk: links.append({"type": lt, "direction": "outward", "key": lnk["outwardIssue"]["key"]})
-
     labels = f.get("labels", []) or []
-
     return {
         "key":            raw["key"],
         "project":        raw["key"].split("-")[0],
@@ -134,7 +125,6 @@ def get_labels(issues):
 
 def get_assignees(issues): return sorted(set(i["assignee"] for i in issues))
 def get_projects(issues):  return sorted(set(i["project"]  for i in issues))
-
 def last_sync():
     if _cache["ts"]: return datetime.fromtimestamp(_cache["ts"]).strftime("%d %b %Y %H:%M")
     return "Never"

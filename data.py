@@ -15,9 +15,6 @@ PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
 BASIC   = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
 HEADERS = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
 
-# Minimal fields to reduce payload size
-FIELDS = ["summary","issuetype","status","assignee","priority","labels","created","updated","duedate","comment","issuelinks","parent","fixVersions"]
-
 _cache = {"data": [], "ts": 0}
 TTL = 600
 
@@ -29,8 +26,13 @@ def _fetch_all():
     url = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
 
     while True:
-        body = {"jql": jql, "fields": FIELDS, "maxResults": 50, "startAt": start}
-        log.info(f"POST {url} startAt={start}")
+        # fields must be comma-separated string, not list
+        body = {
+            "jql": jql,
+            "fields": "summary,issuetype,status,assignee,priority,labels,created,updated,duedate,comment,issuelinks,parent,fixVersions",
+            "maxResults": 50,
+            "startAt": start
+        }
         r = requests.post(url, headers=HEADERS, json=body, timeout=60)
         log.info(f"Status: {r.status_code}")
         if r.status_code != 200:

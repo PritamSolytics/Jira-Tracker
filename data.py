@@ -6,17 +6,21 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-BASE_URL = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
-AUTH     = (os.getenv("JIRA_EMAIL", ""), os.getenv("JIRA_API_TOKEN", ""))
-PROJECTS = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
-FIELDS   = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10015,customfield_10016,fixVersions,sprint"
+# Use Atlassian API gateway to avoid IP restrictions
+CLOUD_ID = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
+BASE_URL  = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
+API_BASE  = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}"
+AUTH      = (os.getenv("JIRA_EMAIL", ""), os.getenv("JIRA_API_TOKEN", ""))
+PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
+FIELDS    = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10015,customfield_10016,fixVersions,sprint"
 
 _cache = {"data": [], "ts": 0}
 TTL = 600
 
 def _get(path, params=None):
     try:
-        r = requests.get(f"{BASE_URL}/rest/api/2{path}", auth=AUTH, params=params, timeout=30)
+        r = requests.get(f"{API_BASE}/rest/api/3{path}", auth=AUTH, params=params, timeout=30,
+                         headers={"Accept": "application/json"})
         r.raise_for_status()
         return r.json()
     except requests.exceptions.RequestException as e:
@@ -26,7 +30,6 @@ def _get(path, params=None):
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
     issues, start = [], 0
-    # Only last 90 days to keep volume manageable
     jql = f"project in ({projects_jql}) AND updated >= -90d ORDER BY updated DESC"
     log.info(f"Fetching: {jql}")
     while True:
@@ -39,7 +42,7 @@ def _fetch_all():
 
 def _parse(raw):
     f = raw["fields"]
-    assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
+    assignee  = (f.get("assignee") or {}).get("displayName", "Unassigned")
     reporter  = (f.get("reporter") or {}).get("displayName", "")
     due       = f.get("duedate") or ""
     updated   = (f.get("updated") or "")[:10]
@@ -52,10 +55,10 @@ def _parse(raw):
     if due:
         dd = date.fromisoformat(due)
         st = f.get("status", {}).get("name", "")
-        if st == "Closed":       due_flag = "Closed"
-        elif dd < today:         due_flag = f"Past Due Date ({(today-dd).days}d)"
-        elif (dd-today).days<=7: due_flag = "Due This Week"
-        else:                    due_flag = "On Track"
+        if st == "Closed":        due_flag = "Closed"
+        elif dd < today:          due_flag = f"Past Due Date ({(today-dd).days}d)"
+        elif (dd-today).days <= 7: due_flag = "Due This Week"
+        else:                     due_flag = "On Track"
     else:
         due_flag = "No Due Date"
 
@@ -68,6 +71,8 @@ def _parse(raw):
                 for inline in block.get("content", []):
                     if inline.get("type") == "text":
                         latest_comment += inline.get("text", "")
+        elif isinstance(body, str):
+            latest_comment = body
         latest_comment = latest_comment[:300].replace("\n", " ")
 
     links = []

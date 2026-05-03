@@ -12,10 +12,11 @@ EMAIL     = os.getenv("JIRA_EMAIL", "")
 TOKEN     = os.getenv("JIRA_API_TOKEN", "")
 PROJECTS  = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
 
-BASIC     = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
-HEADERS   = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
+BASIC   = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
+HEADERS = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
 
-FIELDS    = "summary,issuetype,status,assignee,reporter,priority,labels,created,updated,duedate,comment,issuelinks,parent,customfield_10015,customfield_10016,fixVersions,sprint"
+# Minimal fields to reduce payload size
+FIELDS = ["summary","issuetype","status","assignee","priority","labels","created","updated","duedate","comment","issuelinks","parent","fixVersions"]
 
 _cache = {"data": [], "ts": 0}
 TTL = 600
@@ -28,14 +29,9 @@ def _fetch_all():
     url = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
 
     while True:
-        # /search/jql uses GET with query params, not POST
-        params = {
-            "jql": jql,
-            "fields": FIELDS,
-            "maxResults": 100,
-            "startAt": start,
-        }
-        r = requests.get(url, headers=HEADERS, params=params, timeout=30)
+        body = {"jql": jql, "fields": FIELDS, "maxResults": 50, "startAt": start}
+        log.info(f"POST {url} startAt={start}")
+        r = requests.post(url, headers=HEADERS, json=body, timeout=60)
         log.info(f"Status: {r.status_code}")
         if r.status_code != 200:
             log.error(f"Error: {r.text[:500]}")
@@ -44,19 +40,18 @@ def _fetch_all():
         batch = res.get("issues", [])
         issues += batch
         total = res.get("total", len(issues))
-        start += 100
+        start += 50
         log.info(f"Fetched {len(issues)}/{total}")
         if start >= total or not batch: break
     return issues
 
 def _parse(raw):
     f = raw["fields"]
-    assignee  = (f.get("assignee") or {}).get("displayName", "Unassigned")
-    reporter  = (f.get("reporter") or {}).get("displayName", "")
-    due       = f.get("duedate") or ""
-    updated   = (f.get("updated") or "")[:10]
-    created   = (f.get("created") or "")[:10]
-    today     = date.today()
+    assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
+    due      = f.get("duedate") or ""
+    updated  = (f.get("updated") or "")[:10]
+    created  = (f.get("created") or "")[:10]
+    today    = date.today()
 
     try: days_stale = (today - date.fromisoformat(updated)).days
     except: days_stale = 0
@@ -82,7 +77,7 @@ def _parse(raw):
                         latest_comment += inline.get("text", "")
         elif isinstance(body, str):
             latest_comment = body
-        latest_comment = latest_comment[:300].replace("\n", " ")
+        latest_comment = latest_comment[:200].replace("\n", " ")
 
     links = []
     for lnk in f.get("issuelinks", []):
@@ -90,9 +85,7 @@ def _parse(raw):
         if "inwardIssue"  in lnk: links.append({"type": lt, "direction": "inward",  "key": lnk["inwardIssue"]["key"]})
         if "outwardIssue" in lnk: links.append({"type": lt, "direction": "outward", "key": lnk["outwardIssue"]["key"]})
 
-    labels     = f.get("labels", []) or []
-    sprint_raw = f.get("sprint") or {}
-    sprint     = sprint_raw.get("name", "") if isinstance(sprint_raw, dict) else ""
+    labels = f.get("labels", []) or []
 
     return {
         "key":            raw["key"],
@@ -101,7 +94,7 @@ def _parse(raw):
         "type":           f.get("issuetype", {}).get("name", ""),
         "status":         f.get("status", {}).get("name", ""),
         "assignee":       assignee,
-        "reporter":       reporter,
+        "reporter":       "",
         "priority":       (f.get("priority") or {}).get("name", ""),
         "labels":         labels,
         "label_display":  ", ".join(labels) if labels else "(No Label)",
@@ -113,11 +106,11 @@ def _parse(raw):
         "comments_count": len(comments),
         "latest_comment": latest_comment,
         "links":          links,
-        "sprint":         sprint,
+        "sprint":         "",
         "fix_version":    ", ".join(v.get("name","") for v in (f.get("fixVersions") or [])),
         "parent":         (f.get("parent") or {}).get("key", ""),
         "url":            f"{BASE_URL}/browse/{raw['key']}",
-        "story_points":   f.get("customfield_10016") or f.get("customfield_10015") or None,
+        "story_points":   None,
     }
 
 def get_issues(force=False):
@@ -128,7 +121,7 @@ def get_issues(force=False):
             _cache["ts"] = now
             log.info(f"Cache updated: {len(_cache['data'])} issues")
         except Exception as e:
-            log.error(f"Failed to fetch: {e}")
+            log.error(f"Failed: {e}")
     return _cache["data"]
 
 def get_labels(issues):

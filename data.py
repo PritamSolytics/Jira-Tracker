@@ -23,9 +23,9 @@ TTL = 600
 
 ENDPOINTS = [
     # (url_template, headers, use_post)
-    (f"{BASE_URL}/rest/api/3/search",                               {"Authorization": f"Basic {BASIC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}, True),
-    (f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search", {"Authorization": f"Basic {BASIC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}, True),
-    (f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search", {"Authorization": f"Bearer {TOKEN}",        "Accept": "application/json", "Content-Type": "application/json"}, True),
+    (f"{BASE_URL}/rest/api/3/search/jql",                               {"Authorization": f"Basic {BASIC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}, True),
+    (f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql", {"Authorization": f"Basic {BASIC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}, True),
+    (f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql", {"Authorization": f"Bearer {TOKEN}",        "Accept": "application/json", "Content-Type": "application/json"}, True),
 ]
 
 def _search(jql, start=0):

@@ -47,6 +47,7 @@ SIDEBAR = html.Nav([
 TOPBAR = html.Div([
     html.Div(id="page-title", style={"fontWeight":"700","fontSize":"0.95rem","color":TEXT}),
     html.Div([
+        dcc.Dropdown(id="g-project",  placeholder="Project",   multi=True, clearable=True, style={"minWidth":"120px","fontSize":"0.78rem"}),
         dcc.Dropdown(id="g-label",    placeholder="Label",     multi=True, clearable=True, style={"minWidth":"150px","fontSize":"0.78rem"}),
         dcc.Dropdown(id="g-assignee", placeholder="Assignee",  multi=True, clearable=True, style={"minWidth":"150px","fontSize":"0.78rem"}),
         dcc.Dropdown(id="g-type",     placeholder="Issue Type", multi=True, clearable=True,
@@ -94,7 +95,7 @@ app.layout = html.Div([
 # ── Data load ──────────────────────────────────────────────────
 @app.callback(
     Output("store-issues","data"), Output("sync-ts","children"),
-    Output("g-label","options"),  Output("g-assignee","options"),
+    Output("g-label","options"),  Output("g-assignee","options"), Output("g-project","options"),
     Input("btn-refresh","n_clicks"), Input("auto-refresh","n_intervals"),
     prevent_initial_call=False,
 )
@@ -103,11 +104,13 @@ def load_data(n, _):
     issues = D.get_issues(force=force)
     labels    = [{"label":l,"value":l} for l in D.get_labels(issues)]
     assignees = [{"label":a,"value":a} for a in D.get_assignees(issues)]
-    return issues, f"Last sync: {D.last_sync()}", labels, assignees
+    projects  = [{"label":p,"value":p} for p in D.get_projects(issues)]
+    return issues, f"Last sync: {D.last_sync()}", labels, assignees, projects
 
 
-def filter_issues(issues, labels, assignees, types, statuses):
+def filter_issues(issues, labels, assignees, types, statuses, projects=None):
     r = issues
+    if projects:  r = [i for i in r if i["project"] in projects]
     if labels:    r = [i for i in r if any(l in i["labels"] for l in labels)]
     if assignees: r = [i for i in r if i["assignee"] in assignees]
     if types:     r = [i for i in r if i["type"] in types]
@@ -121,11 +124,11 @@ def filter_issues(issues, labels, assignees, types, statuses):
     Input("url","pathname"),
     Input("store-issues","data"),
     Input("g-label","value"), Input("g-assignee","value"),
-    Input("g-type","value"),  Input("g-status","value"),
+    Input("g-type","value"),  Input("g-status","value"), Input("g-project","value"),
 )
-def route(path, issues, labels, assignees, types, statuses):
+def route(path, issues, labels, assignees, types, statuses, projects):
     if not issues: return html.Div("Loading…"), ""
-    f = filter_issues(issues, labels or [], assignees or [], types or [], statuses or [])
+    f = filter_issues(issues, labels or [], assignees or [], types or [], statuses or [], projects or [])
     pages = {
         "/":            (page_overview,     "Overview"),
         "/items":       (page_items,        "Work Items"),

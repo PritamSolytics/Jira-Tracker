@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: jira-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:server -b 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: JIRA_BASE_URL
+        value: https://solytics.atlassian.net
+      - key: JIRA_EMAIL
+        sync: false
+      - key: JIRA_API_TOKEN
+        sync: false
+      - key: JIRA_PROJECT
+        value: NNG

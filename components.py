@@ -1,92 +1,114 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
 
-# ── Colour system ──────────────────────────────────────────────
+# ── Design tokens (light theme, dark navy accents) ─────────────
+BG       = "#F8FAFF"
+SURFACE  = "#FFFFFF"
+NAVY     = "#0F2344"
+NAVY2    = "#1A3A6E"
+ACCENT   = "#1E6FDB"
+ACCENT2  = "#E8F0FB"
+BORDER   = "#DDE6F5"
+TEXT     = "#0F2344"
+MUTED    = "#6B7A99"
+RED      = "#D93025"
+ORANGE   = "#E8710A"
+GREEN    = "#1E8A44"
+AMBER    = "#B45309"
+
 STATUS_CLR = {
-    "Closed":                   "#16a34a",
-    "QA Testing":               "#2563eb",
-    "Ready For QA Testing":     "#3b82f6",
-    "Code Review":              "#6366f1",
-    "Development In Progress":  "#f59e0b",
-    "Fixing in Progress":       "#ef4444",
-    "Groomed":                  "#64748b",
-    "To Do":                    "#94a3b8",
-    "Rejected":                 "#dc2626",
-    "Integration Testing":      "#8b5cf6",
+    "Closed":                   ("#1E8A44", "#E6F4EC"),
+    "QA Testing":               ("#1E6FDB", "#E8F0FB"),
+    "Ready For QA Testing":     ("#1E6FDB", "#E8F0FB"),
+    "Code Review":              ("#7C3AED", "#F3EFFE"),
+    "Development In Progress":  ("#B45309", "#FEF3C7"),
+    "Fixing in Progress":       ("#D93025", "#FEE8E8"),
+    "Integration Testing":      ("#0F766E", "#E6FAFA"),
+    "Groomed":                  ("#6B7A99", "#F1F4FB"),
+    "To Do":                    ("#6B7A99", "#F1F4FB"),
+    "Rejected":                 ("#D93025", "#FEE8E8"),
 }
-TYPE_CLR  = {"Task":"#3b82f6","Story":"#8b5cf6","Bug":"#ef4444","Sub-task":"#f59e0b","Epic":"#10b981"}
-PRIO_CLR  = {"Highest":"#dc2626","High":"#f97316","Medium":"#eab308","Low":"#22c55e"}
-DEFAULT   = "#94a3b8"
+TYPE_CLR  = {"Task":"#1E6FDB","Story":"#7C3AED","Bug":"#D93025","Sub-task":"#B45309","Epic":"#0F766E"}
+PRIO_CLR  = {"Highest":"#D93025","High":"#E8710A","Medium":"#B45309","Low":"#1E8A44"}
 
-def sc(s): return STATUS_CLR.get(s, DEFAULT)
-def tc(t): return TYPE_CLR.get(t,  DEFAULT)
-def pc(p): return PRIO_CLR.get(p,  DEFAULT)
+def sc(s): fg,bg = STATUS_CLR.get(s, (MUTED,"#F1F4FB")); return fg
+def sc_bg(s): fg,bg = STATUS_CLR.get(s, (MUTED,"#F1F4FB")); return bg
+def tc(t): return TYPE_CLR.get(t, MUTED)
+def pc(p): return PRIO_CLR.get(p, MUTED)
 
-# ── KPI card ──────────────────────────────────────────────────
-def kpi(label, value, color="#1e40af", sub=None):
+def kpi(label, value, color=ACCENT, sub=None):
     return html.Div([
-        html.Div(str(value), style={"fontSize":"2.2rem","fontWeight":"700","color":color,"lineHeight":"1"}),
-        html.Div(label, style={"fontSize":"0.7rem","color":"#94a3b8","marginTop":"4px","letterSpacing":"0.08em","textTransform":"uppercase"}),
-        html.Div(sub, style={"fontSize":"0.68rem","color":color,"marginTop":"2px"}) if sub else None,
-    ], style={
-        "background":"#111827","border":f"1px solid {color}22",
-        "borderRadius":"8px","padding":"16px 20px","minWidth":"120px",
-        "borderTop":f"3px solid {color}",
-    })
-
-# ── Section header ─────────────────────────────────────────────
-def section(title):
-    return html.Div(title, style={
-        "fontSize":"0.65rem","fontWeight":"700","letterSpacing":"0.12em",
-        "textTransform":"uppercase","color":"#475569","marginBottom":"12px","marginTop":"24px",
-    })
-
-# ── Filter bar ─────────────────────────────────────────────────
-def filter_bar(labels, assignees):
-    dd = lambda i,p,opts: dcc.Dropdown(
-        id=i, placeholder=p, multi=True, clearable=True,
-        options=[{"label":o,"value":o} for o in opts],
-        style={"minWidth":"180px","fontSize":"0.8rem"},
-        className="dash-dropdown-dark"
-    )
-    return html.Div([
-        dd("f-label",    "Label",         labels),
-        dd("f-assignee", "Assignee",      assignees),
-        dd("f-type",     "Issue Type",    ["Task","Story","Bug","Sub-task","Epic"]),
-        dd("f-status",   "Status",        list(STATUS_CLR.keys())),
-        dd("f-priority", "Priority",      ["Highest","High","Medium","Low"]),
-        html.Button("Refresh", id="btn-refresh", n_clicks=0, style={
-            "background":"#1e40af","color":"#fff","border":"none",
-            "borderRadius":"6px","padding":"8px 16px","cursor":"pointer","fontSize":"0.8rem",
+        html.Div(str(value), style={
+            "fontSize":"2rem","fontWeight":"800","color":color,
+            "lineHeight":"1","fontFamily":"'DM Mono', monospace",
         }),
-        html.Div(id="sync-time", style={"color":"#475569","fontSize":"0.72rem","alignSelf":"center"}),
-    ], style={"display":"flex","gap":"10px","flexWrap":"wrap","alignItems":"center","padding":"12px 0"})
+        html.Div(label, style={
+            "fontSize":"0.65rem","color":MUTED,"marginTop":"4px",
+            "letterSpacing":"0.08em","textTransform":"uppercase","fontWeight":"600",
+        }),
+        html.Div(sub, style={"fontSize":"0.7rem","color":color,"marginTop":"2px","fontWeight":"600"}) if sub else None,
+    ], style={
+        "background":SURFACE,"borderRadius":"10px","padding":"18px 20px",
+        "borderLeft":f"4px solid {color}","boxShadow":"0 1px 6px rgba(15,35,68,0.08)",
+        "minWidth":"110px","flex":"1",
+    })
 
-# ── Cytoscape stylesheet ────────────────────────────────────────
+def status_badge(s):
+    fg, bg = STATUS_CLR.get(s, (MUTED, "#F1F4FB"))
+    return html.Span(s, style={
+        "background":bg,"color":fg,"borderRadius":"20px",
+        "padding":"2px 10px","fontSize":"0.68rem","fontWeight":"600",
+        "border":f"1px solid {fg}22","whiteSpace":"nowrap",
+    })
+
+def section(title, sub=None):
+    return html.Div([
+        html.Div(title, style={
+            "fontSize":"0.6rem","fontWeight":"800","letterSpacing":"0.14em",
+            "textTransform":"uppercase","color":NAVY2,"marginBottom":"2px",
+        }),
+        html.Div(sub, style={"fontSize":"0.72rem","color":MUTED}) if sub else None,
+    ], style={"marginBottom":"14px","marginTop":"24px"})
+
+def card(*children, cols=1, pad="18px"):
+    return html.Div(children, style={
+        "background":SURFACE,"borderRadius":"12px","padding":pad,
+        "border":f"1px solid {BORDER}","gridColumn":f"span {cols}",
+        "boxShadow":"0 1px 8px rgba(15,35,68,0.06)",
+    })
+
+def grid(*cards, cols=2, gap="16px"):
+    return html.Div(cards, style={
+        "display":"grid","gridTemplateColumns":f"repeat({cols},1fr)",
+        "gap":gap,"marginTop":"16px",
+    })
+
 CYTO_STYLE = [
     {"selector":"node","style":{
-        "label":"data(label)","font-size":"9px","color":"#e2e8f0",
-        "background-color":"data(color)","border-color":"data(color)",
+        "label":"data(label)","font-size":"9px","color":TEXT,
+        "background-color":"data(color)","border-color":"data(border)",
         "border-width":"2px","width":"data(size)","height":"data(size)",
-        "text-valign":"bottom","text-halign":"center","text-margin-y":"4px",
+        "text-valign":"bottom","text-halign":"center","text-margin-y":"5px",
+        "font-family":"DM Mono, monospace","font-weight":"600",
     }},
     {"selector":"edge","style":{
-        "line-color":"#334155","target-arrow-color":"#334155",
+        "line-color":BORDER,"target-arrow-color":MUTED,
         "target-arrow-shape":"triangle","curve-style":"bezier",
-        "label":"data(label)","font-size":"8px","color":"#64748b","width":"1.5",
+        "label":"data(label)","font-size":"8px","color":MUTED,"width":"1.5",
+        "font-family":"DM Mono, monospace",
     }},
-    {"selector":":selected","style":{"border-width":"3px","border-color":"#f8fafc"}},
+    {"selector":":selected","style":{"border-width":"3px","border-color":ACCENT}},
 ]
 
-# ── Build cytoscape elements from issues ───────────────────────
 def cyto_elements(issues):
     nodes, edges, seen = [], [], set()
     key_map = {i["key"]: i for i in issues}
     for i in issues:
-        sz = 28 + len(i["links"]) * 4
+        sz = max(24, min(50, 24 + len(i["links"]) * 5))
+        fg = sc(i["status"])
         nodes.append({"data":{
             "id":i["key"],"label":i["key"],
-            "color":sc(i["status"]),"size":min(sz,60),
+            "color":sc_bg(i["status"]),"border":fg,"size":sz,
             "type":i["type"],"status":i["status"],
             "assignee":i["assignee"],"summary":i["summary"][:60],
         }})
@@ -102,35 +124,43 @@ def cyto_elements(issues):
                 seen.add(eid)
     return nodes + edges
 
-# ── Issue detail drawer ────────────────────────────────────────
 def issue_drawer(issue):
-    if not issue: return html.Div()
+    if not issue: return html.Div("Select a node to view details.", style={"color":MUTED,"padding":"24px","fontSize":"0.8rem"})
     rows = [
-        ("Issue Type",  issue["type"]),
-        ("Status",      issue["status"]),
-        ("Assignee",    issue["assignee"]),
-        ("Reporter",    issue["reporter"]),
-        ("Priority",    issue["priority"]),
-        ("Label",       issue["label_display"]),
-        ("Created",     issue["created"]),
-        ("Updated",     issue["updated"]),
-        ("Due Date",    issue["due"] or "—"),
-        ("Due Flag",    issue["due_flag"]),
-        ("Days Stale",  issue["days_stale"]),
-        ("Comments",    issue["comments_count"]),
-        ("Sprint",      issue["sprint"] or "—"),
-        ("Fix Version", issue["fix_version"] or "—"),
-        ("Parent",      issue["parent"] or "—"),
+        ("Issue Type", issue["type"]),
+        ("Status",     issue["status"]),
+        ("Assignee",   issue["assignee"]),
+        ("Priority",   issue["priority"]),
+        ("Label",      issue["label_display"]),
+        ("Created",    issue["created"]),
+        ("Updated",    issue["updated"]),
+        ("Due Date",   issue["due"] or "—"),
+        ("Due Flag",   issue["due_flag"]),
+        ("Days Stale", issue["days_stale"]),
+        ("Comments",   issue["comments_count"]),
+        ("Parent",     issue["parent"] or "—"),
     ]
     return html.Div([
         html.A(issue["key"], href=issue["url"], target="_blank", style={
-            "fontSize":"1rem","fontWeight":"700","color":"#60a5fa","textDecoration":"none",
+            "fontSize":"0.9rem","fontWeight":"800","color":ACCENT,
+            "textDecoration":"none","fontFamily":"DM Mono, monospace",
         }),
-        html.Div(issue["summary"], style={"color":"#e2e8f0","fontSize":"0.82rem","margin":"8px 0 16px","lineHeight":"1.4"}),
-        *[html.Div([
-            html.Span(k, style={"color":"#64748b","fontSize":"0.7rem","width":"100px","display":"inline-block"}),
-            html.Span(str(v), style={"color":"#e2e8f0","fontSize":"0.78rem"}),
-        ], style={"marginBottom":"6px"}) for k,v in rows],
-        html.Div("Latest Comment", style={"color":"#64748b","fontSize":"0.7rem","marginTop":"16px","marginBottom":"4px"}),
-        html.Div(issue["latest_comment"] or "—", style={"color":"#94a3b8","fontSize":"0.75rem","lineHeight":"1.5"}),
+        html.Div(issue["summary"], style={
+            "color":TEXT,"fontSize":"0.8rem","margin":"8px 0 16px",
+            "lineHeight":"1.5","fontWeight":"500",
+        }),
+        html.Div([html.Div([
+            html.Span(k, style={"color":MUTED,"fontSize":"0.65rem","fontWeight":"600",
+                                "textTransform":"uppercase","letterSpacing":"0.06em",
+                                "width":"90px","display":"inline-block"}),
+            html.Span(str(v), style={"color":TEXT,"fontSize":"0.75rem","fontWeight":"500"}),
+        ], style={"marginBottom":"8px","display":"flex","alignItems":"center"}) for k,v in rows]),
+        html.Div("Latest Comment", style={"color":MUTED,"fontSize":"0.65rem","fontWeight":"600",
+                                          "textTransform":"uppercase","letterSpacing":"0.06em",
+                                          "marginTop":"16px","marginBottom":"6px"}),
+        html.Div(issue["latest_comment"] or "No comments.", style={
+            "color":MUTED,"fontSize":"0.75rem","lineHeight":"1.6",
+            "background":"#F8FAFF","borderRadius":"8px","padding":"10px",
+            "border":f"1px solid {BORDER}",
+        }),
     ], style={"padding":"20px"})

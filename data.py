@@ -6,43 +6,43 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-CLOUD_ID = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
-BASE_URL = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
-EMAIL    = os.getenv("JIRA_EMAIL", "")
-TOKEN    = os.getenv("JIRA_API_TOKEN", "")
-PROJECTS = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
+CLOUD_ID   = os.getenv("JIRA_CLOUD_ID", "5fb74332-b7cc-4502-8a2b-37aaa9228d95")
+BASE_URL   = os.getenv("JIRA_BASE_URL", "https://solytics.atlassian.net")
+EMAIL      = os.getenv("JIRA_EMAIL", "")
+TOKEN      = os.getenv("JIRA_API_TOKEN", "")
+PROJECTS   = [p.strip() for p in os.getenv("JIRA_PROJECT", "NNG").split(",")]
+MAX_ISSUES = int(os.getenv("MAX_ISSUES", "500"))
+DAYS_BACK  = int(os.getenv("DAYS_BACK", "60"))
 
 BASIC   = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
 HEADERS = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
-
 FIELDS  = ["summary","issuetype","status","assignee","priority","labels",
            "created","updated","duedate","comment","issuelinks","parent","fixVersions"]
-
-_cache  = {"data": [], "ts": 0}
-TTL     = 600
 URL     = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
+
+_cache = {"data": [], "ts": 0}
+TTL    = 600
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
-    jql = f"project in ({projects_jql}) AND updated >= -90d ORDER BY updated DESC"
-    log.info(f"Fetching: {jql}")
+    jql = f"project in ({projects_jql}) AND updated >= -{DAYS_BACK}d ORDER BY updated DESC"
+    log.info(f"Fetching: {jql} (max {MAX_ISSUES})")
     issues, next_token = [], None
-    while True:
+    while len(issues) < MAX_ISSUES:
         body = {"jql": jql, "fields": FIELDS, "maxResults": 50}
         if next_token:
             body["nextPageToken"] = next_token
         r = requests.post(URL, headers=HEADERS, json=body, timeout=60)
-        log.info(f"Status: {r.status_code}")
         if r.status_code != 200:
-            log.error(f"Error: {r.text[:300]}")
+            log.error(f"Error {r.status_code}: {r.text[:200]}")
             r.raise_for_status()
         res = r.json()
         batch = res.get("issues", [])
         issues += batch
         next_token = res.get("nextPageToken")
-        log.info(f"Got {len(batch)}, total so far: {len(issues)}, isLast: {res.get('isLast')}")
+        log.info(f"Fetched {len(issues)}, isLast={res.get('isLast')}")
         if res.get("isLast", True) or not batch: break
-    return issues
+    return issues[:MAX_ISSUES]
 
 def _parse(raw):
     f = raw["fields"]

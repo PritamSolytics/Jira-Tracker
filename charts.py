@@ -1,17 +1,17 @@
 import plotly.graph_objects as go
-
 from collections import Counter, defaultdict
-from components import sc, tc, pc, STATUS_CLR, TYPE_CLR, PRIO_CLR
+from components import sc, sc_bg, tc, pc, STATUS_CLR, NAVY, NAVY2, ACCENT, BORDER, MUTED, TEXT, BG
 
 LAYOUT = dict(
-    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-    font=dict(color="#94a3b8", size=11, family="IBM Plex Mono, monospace"),
-    margin=dict(l=8, r=8, t=32, b=8),
-    legend=dict(bgcolor="#0f172a", bordercolor="#1e293b"),
+    paper_bgcolor=BG, plot_bgcolor=BG,
+    font=dict(color=TEXT, size=11, family="DM Mono, monospace"),
+    margin=dict(l=8, r=8, t=36, b=8),
+    legend=dict(bgcolor=BG, bordercolor=BORDER, borderwidth=1, font=dict(size=10)),
 )
 
-def _fig(fig):
-    fig.update_layout(**LAYOUT)
+def _fig(fig, title="", h=None):
+    fig.update_layout(**LAYOUT, title=dict(text=title, font=dict(size=12, color=NAVY2, weight=700)))
+    if h: fig.update_layout(height=h)
     return fig
 
 def status_bar(issues):
@@ -19,32 +19,36 @@ def status_bar(issues):
     statuses = sorted(c, key=lambda s: -c[s])
     fig = go.Figure(go.Bar(
         x=[c[s] for s in statuses], y=statuses, orientation="h",
-        marker_color=[sc(s) for s in statuses],
+        marker_color=[sc_bg(s) for s in statuses],
+        marker_line_color=[sc(s) for s in statuses], marker_line_width=2,
         text=[c[s] for s in statuses], textposition="outside",
+        textfont=dict(color=NAVY2, size=11, weight=700),
     ))
-    fig.update_layout(**LAYOUT, title="Status Distribution", yaxis=dict(autorange="reversed"))
+    fig.update_layout(**LAYOUT, title=dict(text="Status Distribution", font=dict(size=12,color=NAVY2,weight=700)),
+                      yaxis=dict(autorange="reversed", gridcolor=BORDER),
+                      xaxis=dict(gridcolor=BORDER))
     return fig
 
 def assignee_stacked(issues, labels):
-    # Per assignee, per label stack
     a_l = defaultdict(Counter)
     for i in issues:
-        for l in (i["labels"] or ["(No Label)"]):
-            a_l[i["assignee"]][l] += 1
+        for l in (i["labels"] or ["(No Label)"]): a_l[i["assignee"]][l] += 1
     assignees = sorted(a_l, key=lambda a: -sum(a_l[a].values()))[:20]
     all_labels = sorted(set(l for c in a_l.values() for l in c))
-    colors = ["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#6366f1","#22c55e","#f97316","#ec4899","#14b8a6","#84cc16","#a855f7"]
+    colors = ["#1E6FDB","#D93025","#1E8A44","#B45309","#7C3AED","#0F766E","#E8710A",
+              "#0F2344","#6B7A99","#1A3A6E","#C2185B","#00796B"]
     traces = [go.Bar(
         name=l, x=assignees, y=[a_l[a][l] for a in assignees],
-        marker_color=colors[i % len(colors)],
+        marker_color=colors[i % len(colors)], opacity=0.9,
     ) for i, l in enumerate(all_labels)]
     fig = go.Figure(traces)
-    fig.update_layout(**LAYOUT, barmode="stack", title="Assignee Load by Label",
-                      xaxis=dict(tickangle=-30))
+    fig.update_layout(**LAYOUT, barmode="stack",
+                      title=dict(text="Assignee Load by Label", font=dict(size=12,color=NAVY2,weight=700)),
+                      xaxis=dict(tickangle=-30, gridcolor=BORDER),
+                      yaxis=dict(gridcolor=BORDER))
     return fig
 
 def bubble_chart(issues):
-    from collections import defaultdict
     a = defaultdict(lambda: {"total":0,"stale":[],"overdue":0})
     for i in issues:
         if i["status"] == "Closed": continue
@@ -54,67 +58,62 @@ def bubble_chart(issues):
     names = list(a.keys())
     x = [a[n]["total"] for n in names]
     y = [round(sum(a[n]["stale"])/len(a[n]["stale"]),1) if a[n]["stale"] else 0 for n in names]
-    sz = [max(10, a[n]["overdue"]*8+10) for n in names]
+    sz = [max(12, a[n]["overdue"]*10+12) for n in names]
     fig = go.Figure(go.Scatter(
         x=x, y=y, mode="markers+text", text=names, textposition="top center",
-        marker=dict(size=sz, color=y, colorscale="RdYlGn_r", showscale=True,
-                    colorbar=dict(title="Avg Days Stale")),
+        textfont=dict(size=9, color=NAVY2),
+        marker=dict(size=sz, color=y, colorscale=[[0,"#1E8A44"],[0.5,"#B45309"],[1,"#D93025"]],
+                    showscale=True, colorbar=dict(title="Avg Days Stale", thickness=12),
+                    line=dict(color=BORDER, width=1)),
         hovertemplate="<b>%{text}</b><br>Open: %{x}<br>Avg Stale: %{y}d<extra></extra>",
     ))
-    fig.update_layout(**LAYOUT, title="Assignee: Open Issues vs Avg Days Stale (size = past due count)",
-                      xaxis_title="Open Issues", yaxis_title="Avg Days Since Updated")
+    fig.update_layout(**LAYOUT,
+                      title=dict(text="Load vs Staleness (bubble = overdue count)", font=dict(size=12,color=NAVY2,weight=700)),
+                      xaxis=dict(title="Open Issues", gridcolor=BORDER),
+                      yaxis=dict(title="Avg Days Since Updated", gridcolor=BORDER))
     return fig
 
 def heatmap(issues):
-    from components import STATUS_CLR
     assignees = sorted(set(i["assignee"] for i in issues if i["status"] != "Closed"))
-    statuses  = list(STATUS_CLR.keys())
+    statuses  = [s for s in STATUS_CLR.keys()]
     grid = defaultdict(Counter)
-    for i in issues:
-        grid[i["assignee"]][i["status"]] += 1
+    for i in issues: grid[i["assignee"]][i["status"]] += 1
     z = [[grid[a][s] for s in statuses] for a in assignees]
     fig = go.Figure(go.Heatmap(
         z=z, x=statuses, y=assignees,
-        colorscale="Blues", showscale=True,
+        colorscale=[[0,BG],[0.5,ACCENT+"55"],[1,ACCENT]],
+        showscale=True,
         hovertemplate="Assignee: %{y}<br>Status: %{x}<br>Count: %{z}<extra></extra>",
     ))
-    fig.update_layout(**LAYOUT, title="Assignee × Status Heatmap",
+    fig.update_layout(**LAYOUT,
+                      title=dict(text="Assignee × Status Heatmap", font=dict(size=12,color=NAVY2,weight=700)),
                       xaxis=dict(tickangle=-30))
     return fig
 
 def priority_donut(issues):
-    c = Counter(i["priority"] for i in issues if i["status"] != "Closed")
-    labels, values = zip(*c.items()) if c else ([],[])
+    c = Counter(i["priority"] for i in issues if i["status"] != "Closed" and i["priority"])
+    if not c: return go.Figure()
+    labels, values = zip(*c.items())
     fig = go.Figure(go.Pie(
         labels=labels, values=values,
         marker_colors=[pc(l) for l in labels],
-        hole=0.55, textinfo="label+percent",
+        hole=0.6, textinfo="label+percent",
+        textfont=dict(size=10, color=TEXT),
     ))
-    fig.update_layout(**LAYOUT, title="Priority Distribution (Open)")
+    fig.update_layout(**LAYOUT, title=dict(text="Priority (Open)", font=dict(size=12,color=NAVY2,weight=700)))
     return fig
 
 def type_donut(issues):
     c = Counter(i["type"] for i in issues)
-    labels, values = zip(*c.items()) if c else ([],[])
+    if not c: return go.Figure()
+    labels, values = zip(*c.items())
     fig = go.Figure(go.Pie(
         labels=labels, values=values,
         marker_colors=[tc(l) for l in labels],
-        hole=0.55, textinfo="label+percent",
+        hole=0.6, textinfo="label+percent",
+        textfont=dict(size=10, color=TEXT),
     ))
-    fig.update_layout(**LAYOUT, title="Issue Type Split")
-    return fig
-
-def age_histogram(issues):
-    open_issues = [i for i in issues if i["status"] != "Closed"]
-    from datetime import date
-    today = date.today()
-    ages = []
-    for i in open_issues:
-        try: ages.append((today - date.fromisoformat(i["created"])).days)
-        except: pass
-    fig = go.Figure(go.Histogram(x=ages, nbinsx=20, marker_color="#3b82f6"))
-    fig.update_layout(**LAYOUT, title="Issue Age Distribution (days since created)",
-                      xaxis_title="Days Open", yaxis_title="Count")
+    fig.update_layout(**LAYOUT, title=dict(text="Issue Type Split", font=dict(size=12,color=NAVY2,weight=700)))
     return fig
 
 def velocity_line(issues):
@@ -128,42 +127,35 @@ def velocity_line(issues):
             by_week[str(week)] += 1
         except: pass
     weeks = sorted(by_week)[-12:]
+    if not weeks: return go.Figure()
     fig = go.Figure(go.Scatter(
         x=weeks, y=[by_week[w] for w in weeks],
         mode="lines+markers+text",
         text=[by_week[w] for w in weeks], textposition="top center",
-        line=dict(color="#22c55e", width=2),
-        marker=dict(size=6, color="#22c55e"),
+        textfont=dict(size=10, color=NAVY2, weight=700),
+        line=dict(color=ACCENT, width=2.5),
+        marker=dict(size=7, color=ACCENT, line=dict(color=BG, width=2)),
+        fill="tozeroy", fillcolor=ACCENT+"15",
     ))
-    fig.update_layout(**LAYOUT, title="Weekly Closed Issues (last 12 weeks)",
-                      xaxis_title="Week", yaxis_title="Closed")
+    fig.update_layout(**LAYOUT,
+                      title=dict(text="Weekly Closed Issues", font=dict(size=12,color=NAVY2,weight=700)),
+                      xaxis=dict(gridcolor=BORDER), yaxis=dict(gridcolor=BORDER))
     return fig
 
-def sankey(issues):
-    labels_all, assignees_all, statuses_all = [], [], []
-    lbl_set = sorted(set(i["label_display"] for i in issues))
-    asgn_set = sorted(set(i["assignee"] for i in issues))
-    stat_set = sorted(set(i["status"] for i in issues))
-    nodes = lbl_set + asgn_set + stat_set
-    node_idx = {n:i for i,n in enumerate(nodes)}
-    colors = (["#3b82f6"]*len(lbl_set) + ["#8b5cf6"]*len(asgn_set) + ["#f59e0b"]*len(stat_set))
-
-    source, target, value = [], [], []
-    la = defaultdict(int)
-    for i in issues:
-        la[(i["label_display"], i["assignee"])] += 1
-    for (l,a),v in la.items():
-        source.append(node_idx[l]); target.append(node_idx[a]); value.append(v)
-
-    ast = defaultdict(int)
-    for i in issues:
-        ast[(i["assignee"], i["status"])] += 1
-    for (a,s),v in ast.items():
-        source.append(node_idx[a]); target.append(node_idx[s]); value.append(v)
-
-    fig = go.Figure(go.Sankey(
-        node=dict(label=nodes, color=colors, pad=15, thickness=15),
-        link=dict(source=source, target=target, value=value),
+def age_histogram(issues):
+    from datetime import date
+    today = date.today()
+    ages = []
+    for i in [i for i in issues if i["status"] != "Closed"]:
+        try: ages.append((today - date.fromisoformat(i["created"])).days)
+        except: pass
+    if not ages: return go.Figure()
+    fig = go.Figure(go.Histogram(
+        x=ages, nbinsx=20,
+        marker_color=ACCENT, marker_line_color=BG, marker_line_width=1, opacity=0.85,
     ))
-    fig.update_layout(**LAYOUT, title="Flow: Label → Assignee → Status")
+    fig.update_layout(**LAYOUT,
+                      title=dict(text="Issue Age (days open)", font=dict(size=12,color=NAVY2,weight=700)),
+                      xaxis=dict(title="Days Open", gridcolor=BORDER),
+                      yaxis=dict(title="Count", gridcolor=BORDER))
     return fig

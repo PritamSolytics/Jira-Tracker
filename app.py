@@ -156,6 +156,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
         "/timeline":    (page_timeline,     "Timeline"),
         "/alerts":      (page_alerts,       "Alerts"),
         "/settings":    (page_settings,     "Settings"),
+        "/standup":     (page_standup,      "Standup Log"),
     }
     fn,title=pages.get(path,pages["/"])
     return fn(f,issues),title

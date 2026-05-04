@@ -59,7 +59,7 @@ def heatmap(issues):
     for i in issues: grid[i["assignee"]][i["status"]] += 1
     z = [[grid[a][s] for s in statuses] for a in assignees]
     fig = go.Figure(go.Heatmap(z=z, x=statuses, y=assignees,
-        colorscale=[[0,SURFACE],[0.5,ACCENT+"66"],[1,ACCENT]], showscale=True,
+        colorscale=[[0,SURFACE],[0.5,"rgba(37,99,235,0.4)"],[1,ACCENT]], showscale=True,
         hovertemplate="Assignee: %{y}<br>Status: %{x}<br>Count: %{z}<extra></extra>"))
     fig.update_layout(**L, title=_t("Assignee × Status Heatmap"), xaxis=dict(tickangle=-30))
     return fig
@@ -122,7 +122,7 @@ def relationship_matrix(issues):
     z = [[a_l[a][l] for l in all_labels] for a in assignees]
     text = [[str(a_l[a][l]) if a_l[a][l] else "" for l in all_labels] for a in assignees]
     fig = go.Figure(go.Heatmap(z=z, x=all_labels, y=assignees, text=text, texttemplate="%{text}",
-        colorscale=[[0,SURFACE],[0.3,ACCENT+"33"],[0.7,ACCENT+"88"],[1,ACCENT]],
+        colorscale=[[0,SURFACE],[0.3,"rgba(37,99,235,0.2)"],[0.7,"rgba(37,99,235,0.6)"],[1,ACCENT]],
         showscale=True, colorbar=dict(title="Issues", thickness=10),
         hovertemplate="Assignee: %{y}<br>Label: %{x}<br>Issues: %{z}<extra></extra>"))
     fig.update_layout(**L, title=_t("Relationship Matrix: Assignee × Label"),

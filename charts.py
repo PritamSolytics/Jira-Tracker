@@ -81,7 +81,7 @@ def heatmap(issues):
     z = [[grid[a][s] for s in statuses] for a in assignees]
     fig = go.Figure(go.Heatmap(
         z=z, x=statuses, y=assignees,
-        colorscale=[[0,BG],[0.5,ACCENT+"55"],[1,ACCENT]],
+        colorscale=[[0,BG],[0.5,"rgba(30,111,219,0.33)"],[1,ACCENT]],
         showscale=True,
         hovertemplate="Assignee: %{y}<br>Status: %{x}<br>Count: %{z}<extra></extra>",
     ))
@@ -135,7 +135,7 @@ def velocity_line(issues):
         textfont=dict(size=10, color=NAVY2, weight="bold"),
         line=dict(color=ACCENT, width=2.5),
         marker=dict(size=7, color=ACCENT, line=dict(color=BG, width=2)),
-        fill="tozeroy", fillcolor=ACCENT+"15",
+        fill="tozeroy", fillcolor="rgba(30,111,219,0.08)",
     ))
     fig.update_layout(**LAYOUT,
                       title=dict(text="Weekly Closed Issues", font=dict(size=12,color=NAVY2,weight="bold")),

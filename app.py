@@ -353,7 +353,7 @@ def page_timeline(issues, _all):
         font=dict(color=C.TEXT, size=10, family="DM Mono, monospace"),
         margin=dict(l=8,r=8,t=36,b=8),
         height=max(400, len(dated)*20), barmode="overlay",
-        title=dict(text="Delivery Timeline", font=dict(size=12,color=C.NAVY2,weight=700)),
+        title=dict(text="Delivery Timeline", font=dict(size=12,color=C.NAVY2,weight="bold")),
         xaxis=dict(gridcolor=C.BORDER), yaxis=dict(gridcolor=C.BORDER),
     )
     return html.Div([C.section(f"{len(dated)} Issues with Due Date"), dcc.Graph(figure=fig, config={"displayModeBar":False})])

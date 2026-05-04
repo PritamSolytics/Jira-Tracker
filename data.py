@@ -128,3 +128,12 @@ def get_projects(issues):  return sorted(set(i["project"]  for i in issues))
 def last_sync():
     if _cache["ts"]: return datetime.fromtimestamp(_cache["ts"]).strftime("%d %b %Y %H:%M")
     return "Never"
+
+def post_jira_comment(issue_key, text):
+    """Post a structured standup comment to Jira."""
+    import base64, requests as req
+    basic = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
+    headers = {"Authorization": f"Basic {basic}", "Accept":"application/json","Content-Type":"application/json"}
+    body = {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":text}]}]}}
+    r = req.post(f"{API_BASE}/rest/api/3/issue/{issue_key}/comment", headers=headers, json=body, timeout=15)
+    return r.status_code == 201

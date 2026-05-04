@@ -30,6 +30,8 @@ def accordion(title, children, id_key, default_open=True):
 import data as D
 import components as C
 import charts as CH
+import store as ST
+import standup_page as SL
 
 cyto.load_extra_layouts()
 app = dash.Dash(__name__, suppress_callback_exceptions=True,
@@ -67,6 +69,7 @@ NAV_GROUPS = {
     "INITIATIVE":[("Initiative Health","/initiatives")],
     "WORK":      [("Work Items","/items"),("Timeline","/timeline")],
     "STRUCTURE": [("Dependency Graph","/dependencies"),("Workflow Gates","/workflow")],
+    "STANDUP":  [("Standup Log","/standup")],
     "OPERATIONS":[("Alerts","/alerts"),("Settings","/settings")],
 }
 
@@ -496,6 +499,9 @@ def page_settings(issues,_):
                            html.Span(v,style={"color":C.TEXT,"fontSize":"0.76rem","fontFamily":"JetBrains Mono,monospace"})],style={"marginBottom":"8px"})
                  for k,v in [("Jira URL",D.BASE_URL),("Projects",", ".join(D.PROJECTS)),("Auto-refresh","Every 10 minutes"),("Max Issues",str(D.MAX_ISSUES)),("Days Back",str(D.DAYS_BACK)),("Loaded",str(len(issues)))]])])
 
+def page_standup(issues, _):
+    return SL.layout(issues)
+
 @app.callback(Output("cyto-detail","children"),Input("cyto-graph","tapNodeData"),State("store-issues","data"))
 def cyto_click(node,issues):
     if not node or not issues: return C.issue_drawer(None)
@@ -540,6 +546,8 @@ for _id in ["atrisk","blockers","dueweek","p-charts","p-stack","p-cards","initia
         State(f"acc-body-{_id}", "style"),
         prevent_initial_call=True,
     )
+
+SL.register_callbacks(app, D.get_issues)
 
 if __name__=="__main__":
     app.run(debug=False,host="0.0.0.0",port=8050)

@@ -6,6 +6,27 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 import threading, math
 
+
+def accordion(title, children, id_key, default_open=True):
+    """Expandable section with click-to-toggle."""
+    return html.Div([
+        html.Div([
+            html.Span(title, style={"fontWeight":"800","fontSize":"0.78rem","color":C.NAVY,"letterSpacing":"0.04em","textTransform":"uppercase"}),
+            html.Span("▲" if default_open else "▼", id=f"acc-icon-{id_key}",
+                      style={"color":C.MUTED,"fontSize":"0.7rem","marginLeft":"8px","transition":"transform 0.2s"}),
+        ], id=f"acc-hdr-{id_key}", style={
+            "display":"flex","alignItems":"center","justifyContent":"space-between",
+            "padding":"10px 14px","background":C.ACCENT2,"borderRadius":"8px",
+            "cursor":"pointer","border":f"1px solid {C.BORDER}","marginTop":"16px",
+            "userSelect":"none",
+        }),
+        html.Div(children, id=f"acc-body-{id_key}", style={
+            "display":"block" if default_open else "none",
+            "marginTop":"8px","transition":"all 0.2s",
+        }),
+    ])
+
+
 import data as D
 import components as C
 import charts as CH
@@ -227,16 +248,13 @@ def page_command(issues, all_issues):
         kpi_strip, health_row,
         html.Div([
             html.Div([
-                C.section("At Risk — Top 10 Issues",f"Composite risk score: overdue(40) + stale(20) + bug(15) + priority(15) + unassigned(10)"),
-                C.card(risk_rows,pad="12px"),
-                C.section("Blocker Chains","Issues blocking others — resolve these first"),
-                C.card(blocker_rows,pad="12px"),
+                accordion("⚠ At Risk — Top 10 Issues", C.card(risk_rows,pad="12px"), "atrisk", True),
+                accordion("🔴 Blocker Chains — Resolve These First", C.card(blocker_rows,pad="12px"), "blockers", True),
             ],style={"flex":"1","minWidth":"0"}),
             html.Div([
-                C.section("Due This Week",f"By {next_fri.strftime('%d %b %Y')}"),
-                C.card(due_panel,pad="12px"),
+                accordion(f"📅 Due This Week — by {next_fri.strftime('%d %b')}", C.card(due_panel,pad="12px"), "dueweek", True),
             ],style={"width":"320px","flexShrink":"0"}),
-        ],style={"display":"flex","gap":"16px","marginTop":"16px","alignItems":"flex-start"}),
+        ],style={"display":"flex","gap":"16px","marginTop":"8px","alignItems":"flex-start"}),
     ])
 
 
@@ -296,10 +314,14 @@ def page_people(issues, all_issues):
         ],style={"background":C.SURFACE,"borderRadius":"10px","padding":"14px","border":f"1px solid {card_border}","marginBottom":"8px","boxShadow":"0 1px 6px rgba(11,29,58,0.05)","borderLeft":f"4px solid {card_border}"}))
 
     return html.Div([
-        C.grid(_g(CH.bubble_chart(issues),"p-b",360), _g(CH.heatmap(issues),"p-h",360), cols=2),
-        C.card(_g(CH.assignee_stacked(issues,D.get_labels(issues)),"p-s",300)),
-        C.section("Individual Load","🟢 Available (<3 open) · 🟡 Moderate · 🔴 Overloaded"),
-        html.Div(cards),
+        accordion("📊 Charts — Load vs Staleness & Status Heatmap",
+            C.grid(_g(CH.bubble_chart(issues),"p-b",380), _g(CH.heatmap(issues),"p-h",380), cols=2),
+            "p-charts", True),
+        accordion("📦 Assignee Load by Label",
+            C.card(_g(CH.assignee_stacked(issues,D.get_labels(issues)),"p-s",320)),
+            "p-stack", False),
+        accordion("👤 Individual Load — 🟢 Available (<3 open) · 🟡 Moderate · 🔴 Overloaded",
+            html.Div(cards), "p-cards", True),
     ])
 
 
@@ -354,7 +376,9 @@ def page_initiatives(issues, all_issues):
 
     return html.Div([
         C.section("Initiative Health","Health score = 100 − (overdue%×40 + stale%×25 + bug%×20 + unassigned%×15)"),
-        html.Div(panels,style={"display":"grid","gridTemplateColumns":"repeat(auto-fill,minmax(380px,1fr))","gap":"14px"}),
+        accordion("🏷 All Initiatives",
+            html.Div(panels,style={"display":"grid","gridTemplateColumns":"repeat(auto-fill,minmax(380px,1fr))","gap":"14px"}),
+            "initiatives", True),
     ])
 
 
@@ -496,6 +520,26 @@ a:hover{opacity:0.8}nav a:hover{color:#7EA8E8!important;border-left-color:#2563E
 </head>
 <body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body>
 </html>'''
+
+
+# Clientside callbacks for accordion toggle — no server round-trip needed
+for _id in ["atrisk","blockers","dueweek","p-charts","p-stack","p-cards","initiatives"]:
+    app.clientside_callback(
+        """
+        function(n_clicks, current_style) {
+            if (!n_clicks) return [current_style, '▲'];
+            const is_open = current_style.display !== 'none';
+            return [
+                {...current_style, display: is_open ? 'none' : 'block'},
+                is_open ? '▼' : '▲'
+            ];
+        }
+        """,
+        [Output(f"acc-body-{_id}", "style"), Output(f"acc-icon-{_id}", "children")],
+        Input(f"acc-hdr-{_id}", "n_clicks"),
+        State(f"acc-body-{_id}", "style"),
+        prevent_initial_call=True,
+    )
 
 if __name__=="__main__":
     app.run(debug=False,host="0.0.0.0",port=8050)

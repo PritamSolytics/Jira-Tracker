@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 import threading, math
+import ml_page as ML_PAGE
 
 
 def accordion(title, children, id_key, default_open=True):
@@ -69,6 +70,7 @@ NAV_GROUPS = {
     "INITIATIVE":[("Initiative Health","/initiatives")],
     "WORK":      [("Work Items","/items"),("Timeline","/timeline")],
     "STRUCTURE": [("Dependency Graph","/dependencies"),("Workflow Gates","/workflow")],
+    "QUANT ML":   [("ML Engine", "/ml")],
     "STANDUP":  [("Standup Log","/standup")],
     "OPERATIONS":[("Alerts","/alerts"),("Settings","/settings")],
 }
@@ -146,6 +148,10 @@ def route(path,issues,labels,assignees,types,statuses,projects):
                          html.Div("Auto-refreshes every 10 minutes.",style={"color":C.MUTED,"fontSize":"0.78rem","marginTop":"6px"})],
                         style={"padding":"80px","textAlign":"center"}),""
     f=filt(issues,labels or [],assignees or [],types or [],statuses or [],projects or [])
+    # ML page handled separately — needs unfiltered issues for full model coverage
+    if path == "/ml":
+        return ML_PAGE.layout(f), "Quant ML Engine"
+
     pages={
         "/":            (page_command,      "Command Centre"),
         "/people":      (page_people,       "People Intelligence"),
@@ -549,6 +555,7 @@ for _id in ["atrisk","blockers","dueweek","p-charts","p-stack","p-cards","initia
     )
 
 SL.register_callbacks(app, D.get_issues)
+ML_PAGE.register_callbacks(app, D.get_issues)
 
 if __name__=="__main__":
     app.run(debug=False,host="0.0.0.0",port=8050)

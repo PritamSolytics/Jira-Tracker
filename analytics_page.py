@@ -150,6 +150,12 @@ def _build_tests_card(tests):
             ])] if "high_median" in result else []),
         ], style={"padding":"10px 0","borderBottom":f"1px solid {C.BORDER}"}))
 
+    if not tests or all("error" in v for v in tests.values()):
+        no_data = html.Div("Train the model first (Predictive Analytics page) to enable Shapiro-Wilk, Mann-Whitney and Kruskal-Wallis tests. ADF runs on live data only.",
+                           style={"color":C.AMBER,"fontSize":"0.73rem","padding":"8px 0"})
+        return C.card(
+            html.Div("STATISTICAL TESTS", style={"fontSize":"0.58rem","fontWeight":"800","letterSpacing":"0.16em","color":C.NAVY2,"marginBottom":"12px"}),
+            no_data)
     return C.card(
         html.Div("STATISTICAL TESTS", style={"fontSize":"0.58rem","fontWeight":"800","letterSpacing":"0.16em","color":C.NAVY2,"marginBottom":"12px"}),
         html.Div("*p<0.05 = significant at 5% level  |  ns = not significant", style={"fontSize":"0.62rem","color":C.MUTED,"marginBottom":"10px","fontStyle":"italic"}),

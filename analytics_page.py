@@ -352,7 +352,7 @@ def _build_assignee_radar(issues):
             r=vals_closed, theta=cats_closed,
             fill="toself", name=a.split()[0] if " " in a else a,
             line=dict(color=colors[idx]),
-            fillcolor=colors[idx].replace("#","rgba(").replace(")", ",0.08)") if colors[idx].startswith("#") else colors[idx],
+            fillcolor="rgba(37,99,235,0.08)" if idx==0 else ("rgba(220,38,38,0.08)" if idx==1 else ("rgba(22,163,74,0.08)" if idx==2 else ("rgba(124,58,237,0.08)" if idx==3 else ("rgba(234,88,12,0.08)" if idx==4 else "rgba(13,148,136,0.08)")))),
         ))
 
     fig.update_layout(**L, title=_t("Assignee Performance Profile"),

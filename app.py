@@ -5,10 +5,11 @@ import plotly.graph_objects as go
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 import threading, math
-import store as ST
-import standup_page as SL
 import ml_page as ML_PAGE
 import intelligence_page as INT_PAGE
+import data_lab_page as DL_PAGE
+import analytics_page as AN_PAGE
+import task_linkage_page as TL_PAGE
 
 
 def accordion(title, children, id_key, default_open=True):
@@ -40,7 +41,7 @@ import standup_page as SL
 cyto.load_extra_layouts()
 app = dash.Dash(__name__, suppress_callback_exceptions=True,
                 meta_tags=[{"name":"viewport","content":"width=device-width,initial-scale=1"}])
-app.title = "Jira Operations"
+app.title = "Delivery Intelligence Platform"
 server = app.server
 threading.Thread(target=D.get_issues, daemon=True).start()
 
@@ -68,20 +69,27 @@ def at_risk_score(i):
 
 # ── Nav ────────────────────────────────────────────────────────
 NAV_GROUPS = {
-    "COMMAND":   [("Command Centre","/")],
-    "PEOPLE":    [("People Intelligence","/people")],
-    "INITIATIVE":[("Initiative Health","/initiatives")],
-    "WORK":      [("Work Items","/items"),("Timeline","/timeline")],
-    "STRUCTURE": [("Dependency Graph","/dependencies"),("Workflow Gates","/workflow")],
-    "QUANT ML":   [("ML Engine", "/ml")],
-    "STANDUP":  [("Standup Log","/standup")],
-    "OPERATIONS":[("Alerts","/alerts"),("Settings","/settings")],
+    "OVERVIEW":    [("Command Centre",       "/")],
+    "PEOPLE":      [("Resource Intelligence","/people")],
+    "INITIATIVES": [("Initiative Health",    "/initiatives")],
+    "WORK":        [("Work Items",           "/items"),
+                    ("Delivery Timeline",    "/timeline"),
+                    ("Task Linkage",         "/task-linkage")],
+    "STRUCTURE":   [("Dependency Graph",     "/dependencies"),
+                    ("Workflow Analysis",    "/workflow")],
+    "ANALYTICS":   [("Operational Intelligence","/intelligence"),
+                    ("Advanced Analytics",   "/analytics"),
+                    ("Predictive Analytics", "/ml"),
+                    ("Data Laboratory",      "/data-lab")],
+    "OPERATIONS":  [("Standup Log",          "/standup"),
+                    ("Alerts",               "/alerts"),
+                    ("Settings",             "/settings")],
 }
 
 def sidebar():
     items = [html.Div([
-        html.Div("JIRA",style={"fontSize":"1.1rem","fontWeight":"900","color":"#FFFFFF","letterSpacing":"0.1em"}),
-        html.Div("OPERATIONS CENTRE",style={"fontSize":"0.52rem","fontWeight":"700","color":"#4A6898","letterSpacing":"0.12em","marginTop":"2px"}),
+        html.Div("DELIVERY",style={"fontSize":"1.1rem","fontWeight":"900","color":"#FFFFFF","letterSpacing":"0.1em"}),
+        html.Div("INTELLIGENCE PLATFORM",style={"fontSize":"0.52rem","fontWeight":"700","color":"#4A6898","letterSpacing":"0.12em","marginTop":"2px"}),
         html.Div("Solytics Partners",style={"fontSize":"0.6rem","color":"#3A5080","marginTop":"6px"}),
     ],style={"padding":"22px 18px 16px","borderBottom":"1px solid #1E3560"}),
     html.Div(id="nav-sync",style={"padding":"6px 18px","fontSize":"0.6rem","color":"#3A5080","borderBottom":"1px solid #152845"})]
@@ -155,14 +163,19 @@ def route(path,issues,labels,assignees,types,statuses,projects):
                          html.Div("Auto-refreshes every 10 minutes.",style={"color":C.MUTED,"fontSize":"0.78rem","marginTop":"6px"})],
                         style={"padding":"80px","textAlign":"center"}),""
     f=filt(issues,labels or [],assignees or [],types or [],statuses or [],projects or [])
+    if path == "/intelligence": return INT_PAGE.layout(f), "Operational Intelligence"
+    if path == "/ml":           return ML_PAGE.layout(f),  "Predictive Analytics"
+    if path == "/data-lab":     return DL_PAGE.layout(f),  "Data Laboratory"
+    if path == "/analytics":    return AN_PAGE.layout(f),  "Advanced Analytics"
+    if path == "/task-linkage": return TL_PAGE.layout(f),  "Task Linkage Analysis"
     pages={
         "/":            (page_command,      "Command Centre"),
-        "/people":      (page_people,       "People Intelligence"),
+        "/people":      (page_people,       "Resource Intelligence"),
         "/initiatives": (page_initiatives,  "Initiative Health"),
         "/items":       (page_items,        "Work Items"),
         "/dependencies":(page_deps,         "Dependency Graph"),
-        "/workflow":    (page_workflow,      "Workflow Gates"),
-        "/timeline":    (page_timeline,     "Timeline"),
+        "/workflow":    (page_workflow,      "Workflow Analysis"),
+        "/timeline":    (page_timeline,     "Delivery Timeline"),
         "/alerts":      (page_alerts,       "Alerts"),
         "/settings":    (page_settings,     "Settings"),
         "/standup":     (page_standup,      "Standup Log"),
@@ -559,6 +572,10 @@ for _id in ["atrisk","blockers","dueweek","p-charts","p-stack","p-cards","initia
 
 SL.register_callbacks(app, D.get_issues)
 ML_PAGE.register_callbacks(app, D.get_issues)
+INT_PAGE.register_callbacks(app, D.get_issues)
+DL_PAGE.register_callbacks(app, D.get_issues)
+AN_PAGE.register_callbacks(app, D.get_issues)
+TL_PAGE.register_callbacks(app, D.get_issues)
 
 if __name__=="__main__":
     app.run(debug=False,host="0.0.0.0",port=8050)

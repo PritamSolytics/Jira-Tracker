@@ -4,7 +4,7 @@ import dash_cytoscape as cyto
 BG="#F0F4FF"; SURFACE="#FFFFFF"; NAVY="#0B1D3A"; NAVY2="#1A3560"
 ACCENT="#2563EB"; ACCENT2="#EEF4FF"; BORDER="#D4DFFF"; TEXT="#0B1D3A"
 MUTED="#5A6E99"; RED="#DC2626"; ORANGE="#EA580C"; GREEN="#16A34A"
-AMBER="#D97706"; PURPLE="#7C3AED"; TEAL="#0D9488"
+AMBER="#D97706"; PURPLE="#7C3AED"; TEAL="#0D9488"; SLATE="#475569"
 
 EDGE_COLORS = {
     "blocks":"#DC2626","is blocked by":"#DC2626",
@@ -22,10 +22,12 @@ STATUS_CLR = {
     "Development In Progress":(AMBER,"#FFFBEB"), "Fixing in Progress":(RED,"#FEF2F2"),
     "Integration Testing":(TEAL,"#F0FDFA"), "Groomed":(MUTED,"#F1F5F9"),
     "To Do":(MUTED,"#F1F5F9"), "Rejected":(RED,"#FEF2F2"),
+    "Reopened":(ORANGE,"#FFF7ED"), "UAT":(PURPLE,"#F5F3FF"),
+    "On-Hold":(SLATE,"#F8FAFC"), "Info-Needed":(AMBER,"#FFFBEB"),
 }
-TYPE_CLR={"Task":ACCENT,"Story":PURPLE,"Bug":RED,"Sub-task":AMBER,"Epic":TEAL}
-PRIO_CLR={"Highest":RED,"High":ORANGE,"Medium":AMBER,"Low":GREEN}
-PRIO_ICON={"Highest":"▲▲","High":"▲","Medium":"◆","Low":"▼"}
+TYPE_CLR={"Task":ACCENT,"Story":PURPLE,"Bug":RED,"Sub-task":AMBER,"Epic":TEAL,"QA-Sub-task":TEAL}
+PRIO_CLR={"Highest":RED,"High":ORANGE,"Medium":AMBER,"Low":GREEN,"Lowest":TEAL}
+PRIO_ICON={"Highest":"++","High":"+","Medium":"=","Low":"-","Lowest":"--"}
 
 def sc(s): return STATUS_CLR.get(s,(MUTED,"#F1F5F9"))[0]
 def sc_bg(s): return STATUS_CLR.get(s,(MUTED,"#F1F5F9"))[1]
@@ -52,7 +54,7 @@ def health_score(label, score, issues_count):
         ]),
         html.Div(label, style={"fontWeight":"800","fontSize":"0.78rem","color":NAVY,"marginTop":"8px"}),
         html.Div(f"{issues_count} issues", style={"fontSize":"0.68rem","color":MUTED}),
-        html.Div("●" * 5, style={"color":color,"fontSize":"0.6rem","letterSpacing":"2px","marginTop":"6px"}),
+        html.Div(["I"*min(5,max(1,score//20))], style={"color":color,"fontSize":"0.6rem","letterSpacing":"2px","marginTop":"6px","fontFamily":"JetBrains Mono,monospace"}),
     ], style={
         "background":SURFACE,"borderRadius":"12px","padding":"20px","textAlign":"center",
         "border":f"2px solid {color}33","borderTop":f"4px solid {color}",
@@ -60,11 +62,11 @@ def health_score(label, score, issues_count):
     })
 
 def traffic_light(overdue, total):
-    if total == 0: return "⚫"
+    if total == 0: return "[--]"
     pct = overdue/total
-    if pct == 0: return "🟢"
-    elif pct < 0.3: return "🟡"
-    else: return "🔴"
+    if pct == 0: return "[OK]"
+    elif pct < 0.3: return "[!]"
+    else: return "[!!]"
 
 def status_badge(s):
     fg,bg = STATUS_CLR.get(s,(MUTED,"#F1F5F9"))
@@ -83,6 +85,12 @@ def card(*children,cols=1,pad="18px",style=None):
 
 def grid(*cards,cols=2,gap="16px"):
     return html.Div(cards,style={"display":"grid","gridTemplateColumns":f"repeat({cols},1fr)","gap":gap,"marginTop":"16px"})
+
+def stat_row(label, value, color=TEXT, mono=False):
+    return html.Div([
+        html.Span(label,style={"color":MUTED,"fontSize":"0.65rem","fontWeight":"700","textTransform":"uppercase","letterSpacing":"0.08em","width":"160px","display":"inline-block"}),
+        html.Span(str(value),style={"color":color,"fontSize":"0.76rem","fontWeight":"600","fontFamily":"JetBrains Mono,monospace" if mono else "inherit"}),
+    ],style={"marginBottom":"7px","display":"flex","alignItems":"center"})
 
 CYTO_STYLE = [
     {"selector":"node","style":{
@@ -112,7 +120,6 @@ CYTO_STYLE = [
 def cyto_elements(issues):
     nodes, edges, seen = [], [], set()
     key_map = {i["key"]:i for i in issues}
-    # Identify blockers/blocked
     blocking_keys = set()
     blocked_keys = set()
     for i in issues:
@@ -121,7 +128,6 @@ def cyto_elements(issues):
             if "block" in lt:
                 if lnk["direction"]=="outward": blocking_keys.add(i["key"])
                 else: blocked_keys.add(i["key"])
-
     for i in issues:
         sz = max(28,min(56,28+len(i["links"])*5))
         nodes.append({"data":{
@@ -149,9 +155,9 @@ def cyto_elements(issues):
 
 def issue_drawer(issue):
     if not issue:
-        return html.Div([html.Div("◎",style={"fontSize":"2rem","color":BORDER,"marginBottom":"12px"}),
-                         html.Div("Click a node to inspect",style={"color":MUTED,"fontSize":"0.8rem"})],
-                        style={"padding":"32px","textAlign":"center"})
+        return html.Div([
+            html.Div("Select a node to inspect issue details",style={"color":MUTED,"fontSize":"0.8rem","textAlign":"center","padding":"32px 16px"}),
+        ])
     blocking=[l for l in issue["links"] if "block" in l["type"].lower() and l["direction"]=="outward"]
     blocked_by=[l for l in issue["links"] if "block" in l["type"].lower() and l["direction"]=="inward"]
     related=[l for l in issue["links"] if "block" not in l["type"].lower()]
@@ -161,21 +167,23 @@ def issue_drawer(issue):
             html.A(issue["key"],href=issue["url"],target="_blank",style={"fontSize":"0.92rem","fontWeight":"800","color":NAVY,"textDecoration":"none","fontFamily":"JetBrains Mono,monospace","display":"block","marginTop":"4px"}),
             html.Div(issue["summary"],style={"color":TEXT,"fontSize":"0.76rem","marginTop":"6px","lineHeight":"1.5"}),
         ],style={"borderBottom":f"1px solid {BORDER}","paddingBottom":"12px","marginBottom":"12px"}),
-        # Impact row
         html.Div([
-            html.Span(f"🔴 blocks {len(blocking)}",style={"background":"#FEF2F2","color":RED,"borderRadius":"4px","padding":"3px 8px","fontSize":"0.68rem","fontWeight":"700","marginRight":"6px"}) if blocking else None,
-            html.Span(f"🟠 blocked by {len(blocked_by)}",style={"background":"#FFF7ED","color":ORANGE,"borderRadius":"4px","padding":"3px 8px","fontSize":"0.68rem","fontWeight":"700","marginRight":"6px"}) if blocked_by else None,
-            html.Span(f"🔵 {len(related)} related",style={"background":ACCENT2,"color":ACCENT,"borderRadius":"4px","padding":"3px 8px","fontSize":"0.68rem","fontWeight":"700"}) if related else None,
+            html.Span(f"Blocks {len(blocking)}",style={"background":"#FEF2F2","color":RED,"borderRadius":"4px","padding":"3px 8px","fontSize":"0.68rem","fontWeight":"700","marginRight":"6px"}) if blocking else None,
+            html.Span(f"Blocked by {len(blocked_by)}",style={"background":"#FFF7ED","color":ORANGE,"borderRadius":"4px","padding":"3px 8px","fontSize":"0.68rem","fontWeight":"700","marginRight":"6px"}) if blocked_by else None,
+            html.Span(f"{len(related)} related",style={"background":ACCENT2,"color":ACCENT,"borderRadius":"4px","padding":"3px 8px","fontSize":"0.68rem","fontWeight":"700"}) if related else None,
         ],style={"marginBottom":"12px","display":"flex","flexWrap":"wrap","gap":"4px"}),
         html.Div([status_badge(issue["status"]),
                   html.Span(f" {PRIO_ICON.get(issue['priority'],'')} {issue['priority']}",style={"color":pc(issue["priority"]),"fontSize":"0.7rem","fontWeight":"700","marginLeft":"8px"})],
                  style={"marginBottom":"14px"}),
-        *[html.Div([html.Span(k,style={"color":MUTED,"fontSize":"0.62rem","fontWeight":"700","textTransform":"uppercase","letterSpacing":"0.08em","width":"80px","display":"inline-block"}),
-                    html.Span(str(v),style={"color":TEXT,"fontSize":"0.75rem","fontWeight":"500"})],style={"marginBottom":"7px"})
-          for k,v in [("Assignee",issue["assignee"]),("Due",issue["due"] or "—"),("Due Flag",issue["due_flag"]),("Stale",f"{issue['days_stale']}d"),("Parent",issue["parent"] or "—")]],
-        html.Div("Links",style={"color":MUTED,"fontSize":"0.62rem","fontWeight":"700","textTransform":"uppercase","letterSpacing":"0.08em","marginTop":"14px","marginBottom":"8px"}),
-        *[html.Div([html.Span(l["type"],style={"color":edge_color(l["type"]),"fontSize":"0.65rem","fontWeight":"700","marginRight":"6px","width":"100px","display":"inline-block"}),
-                    html.Span(l["key"],style={"color":ACCENT,"fontSize":"0.73rem","fontFamily":"JetBrains Mono,monospace","fontWeight":"600"})],style={"marginBottom":"5px"})
-          for l in issue["links"][:8]],
-        html.Div(issue["latest_comment"] or "No comments.",style={"color":MUTED,"fontSize":"0.72rem","lineHeight":"1.6","marginTop":"12px","fontStyle":"italic","borderTop":f"1px solid {BORDER}","paddingTop":"10px"}),
+        *[stat_row(k,v) for k,v in [
+            ("Assignee",issue["assignee"]),("Due",issue["due"] or "Not set"),
+            ("Due Status",issue["due_flag"]),("Days Stale",f"{issue['days_stale']}d"),
+            ("Parent",issue["parent"] or "None"),
+        ]],
+        html.Div("Issue Links",style={"color":MUTED,"fontSize":"0.62rem","fontWeight":"700","textTransform":"uppercase","letterSpacing":"0.08em","marginTop":"14px","marginBottom":"8px"}),
+        *[html.Div([
+            html.Span(l["type"],style={"color":edge_color(l["type"]),"fontSize":"0.65rem","fontWeight":"700","marginRight":"6px","width":"100px","display":"inline-block"}),
+            html.Span(l["key"],style={"color":ACCENT,"fontSize":"0.73rem","fontFamily":"JetBrains Mono,monospace","fontWeight":"600"}),
+        ],style={"marginBottom":"5px"}) for l in issue["links"][:8]],
+        html.Div(issue["latest_comment"] or "No comments recorded.",style={"color":MUTED,"fontSize":"0.72rem","lineHeight":"1.6","marginTop":"12px","fontStyle":"italic","borderTop":f"1px solid {BORDER}","paddingTop":"10px"}),
     ],style={"padding":"16px","overflowY":"auto","height":"100%"})

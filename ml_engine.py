@@ -344,8 +344,8 @@ def forecast_velocity(issues, periods=8):
             "actual_values":   y.tolist(),
             "forecast_weeks":  future,
             "forecast_values": [round(max(0,v),1) for v in fc_mean.tolist()],
-            "ci_lower":        [round(max(0,v),1) for v in fc_ci.iloc[:,0].tolist()],
-            "ci_upper":        [round(max(0,v),1) for v in fc_ci.iloc[:,1].tolist()],
+            "ci_lower":        [round(max(0,v),1) for v in (fc_ci[:,0] if isinstance(fc_ci, __import__("numpy").ndarray) else fc_ci.iloc[:,0]).tolist()],
+            "ci_upper":        [round(max(0,v),1) for v in (fc_ci[:,1] if isinstance(fc_ci, __import__("numpy").ndarray) else fc_ci.iloc[:,1]).tolist()],
             "model_name": name, "aic": round(fit.aic, 2),
             "is_stationary": is_stationary, "adf_pvalue": round(adf[1], 4),
         }

@@ -8,6 +8,7 @@ import threading, math
 import store as ST
 import standup_page as SL
 import ml_page as ML_PAGE
+import intelligence_page as INT_PAGE
 
 
 def accordion(title, children, id_key, default_open=True):

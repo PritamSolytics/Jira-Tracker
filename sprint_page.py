@@ -282,7 +282,7 @@ Return ONLY valid JSON, no markdown:
             for issue in open_i:
                 s=ct.get(issue["type"],{"median":14,"std":5})
                 sampled=max(1,int(np.random.normal(s["median"]/vel,s.get("std",5)*0.5)))
-                remaining=issue.get("days_stale",0)
+                remaining=issue.get("days_since_progress",0)
                 total=remaining+sampled
                 if issue.get("due"):
                     try:
@@ -310,7 +310,7 @@ Return ONLY valid JSON, no markdown:
             if a in ("Unassigned","Former user"): continue
             a_open=[i for i in open_i if i["assignee"]==a]
             if not a_open: continue
-            ov=sum(1 for i in a_open if "Past Due" in i.get("due_flag",""))
+            ov=sum(1 for i in a_open if "Beyond Target Date" in i.get("due_flag",""))
             risk=min(100,s["open"]*7+ov*18)
             a_risk.append({"a":a,"open":s["open"],"ov":ov,"risk":risk})
         a_risk=sorted(a_risk,key=lambda x:-x["risk"])[:10]

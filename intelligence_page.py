@@ -1,6 +1,6 @@
 """
 intelligence_page.py — Operational Intelligence
-Delivery Predictability Signal · Operational Risk Score · Dependency Propagation
+Delivery Variance Signal · Delivery Concentration Risk · Dependency Propagation
 """
 from dash import html, dcc, dash_table
 import plotly.graph_objects as go
@@ -18,7 +18,7 @@ def _g(fig, gid, h=260): return dcc.Graph(figure=fig, id=gid, style={"height":f"
 
 
 # ── 1. EXECUTION RELIABILITY INDEX ────────────────────────────────────────────
-def delivery_predictability(issues):
+def delivery_variance_signal(issues):
     """
     Per-assignee predictability score based on delivery log ETAs.
     ERI = (on_time forecast_events / total forecast_events with ETA) * 100
@@ -72,20 +72,20 @@ def _eri_chart(rows):
     ))
     fig.add_hline(y=70, line_dash="dot", line_color=C.GREEN, annotation_text="Good (70%)", annotation_font_size=9)
     fig.add_hline(y=40, line_dash="dot", line_color=C.AMBER, annotation_text="Marginal (40%)", annotation_font_size=9)
-    fig.update_layout(**L, title=_t("Delivery Predictability Signal by Assignee"),
+    fig.update_layout(**L, title=_t("Delivery Variance Signal by Assignee"),
         yaxis=dict(title="ERI %", gridcolor=C.BORDER, range=[0,115]),
         xaxis=dict(gridcolor=C.BORDER))
     return fig
 
 
 # ── 2. OPERATIONAL RISK SCORE ─────────────────────────────────────────────────
-def operational_risk_scores(issues):
+def delivery_concentration_risks(issues):
     """
     Composite risk score per assignee combining:
     overdue rate, stale rate, blocker count, bug rate, ERI (inverted)
     Weights: overdue=0.30, stale=0.25, blockers=0.20, bugs=0.15, eri=0.10
     """
-    eri_map = {r["assignee"]: r["eri"] for r in delivery_predictability(issues)}
+    eri_map = {r["assignee"]: r["eri"] for r in delivery_variance_signal(issues)}
 
     by_a = defaultdict(list)
     for i in issues: by_a[i["assignee"]].append(i)
@@ -102,8 +102,8 @@ def operational_risk_scores(issues):
         open_i = [i for i in items if i["status"] != "Closed"]
         if not open_i: continue
         n = len(open_i)
-        overdue  = sum(1 for i in open_i if "Past Due" in i.get("due_flag","")) / n
-        stale    = sum(1 for i in open_i if i.get("days_stale",0) > 7) / n
+        overdue  = sum(1 for i in open_i if "Beyond Target Date" in i.get("due_flag","")) / n
+        stale    = sum(1 for i in open_i if i.get("days_since_progress",0) > 7) / n
         bugs     = sum(1 for i in items if i["type"] == "Bug") / max(1, len(items))
         bloc_n   = min(1.0, blocker_count[a] / 5)  # normalise, cap at 5
         eri_inv  = (100 - eri_map.get(a, 50)) / 100  # lower ERI = higher risk
@@ -131,7 +131,7 @@ def _risk_chart(rows):
     ))
     fig.add_hline(y=60, line_dash="dot", line_color=C.RED, annotation_text="High Risk", annotation_font_size=9)
     fig.add_hline(y=35, line_dash="dot", line_color=C.AMBER, annotation_text="Moderate", annotation_font_size=9)
-    fig.update_layout(**L, title=_t("Operational Risk Score by Assignee"),
+    fig.update_layout(**L, title=_t("Delivery Concentration Risk by Workstream"),
         yaxis=dict(title="Risk Score (0-100)", gridcolor=C.BORDER),
         xaxis=dict(gridcolor=C.BORDER))
     return fig
@@ -148,8 +148,8 @@ def _initiative_risk(issues):
         open_i = [i for i in items if i["status"] != "Closed"]
         if not open_i: continue
         n = len(open_i)
-        overdue = sum(1 for i in open_i if "Past Due" in i.get("due_flag","")) / n
-        stale   = sum(1 for i in open_i if i.get("days_stale",0) > 7) / n
+        overdue = sum(1 for i in open_i if "Beyond Target Date" in i.get("due_flag","")) / n
+        stale   = sum(1 for i in open_i if i.get("days_since_progress",0) > 7) / n
         bugs    = sum(1 for i in items if i["type"]=="Bug") / max(1,len(items))
         risk    = (overdue*0.40 + stale*0.35 + bugs*0.25) * 100
         rows.append({"label":label,"risk":round(risk,1),"open":n,
@@ -186,7 +186,7 @@ def dependency_propagation(issues, max_depth=3):
         if not downstream: continue
 
         # Estimate cascade delay: avg stale days of downstream issues
-        cascade_days = round(np.mean([key_map[d].get("days_stale",0) for d in downstream if d in key_map]), 1)
+        cascade_days = round(np.mean([key_map[d].get("days_since_progress",0) for d in downstream if d in key_map]), 1)
         assignees_affected = len(set(key_map[d].get("assignee","") for d in downstream if d in key_map))
 
         results.append({
@@ -265,11 +265,11 @@ def executive_alerts(issues, risk_rows, prop_rows, eri_rows):
         })
 
     # Overdue surge
-    past_due = [i for i in issues if "Past Due" in i.get("due_flag","") and i["status"] != "Closed"]
-    if len(past_due) > 10:
+    beyond_target_date = [i for i in issues if "Beyond Target Date" in i.get("due_flag","") and i["status"] != "Closed"]
+    if len(beyond_target_date) > 10:
         alerts.append({
             "level": "HIGH",
-            "message": f"{len(past_due)} open issues past due date — delivery timeline at risk",
+            "message": f"{len(beyond_target_date)} open issues past due date — delivery timeline at risk",
             "color": C.ORANGE,
         })
 
@@ -290,8 +290,8 @@ def executive_alerts(issues, risk_rows, prop_rows, eri_rows):
 
 # ── PAGE LAYOUT ───────────────────────────────────────────────────────────────
 def layout(issues):
-    eri_rows  = delivery_predictability(issues)
-    risk_rows = operational_risk_scores(issues)
+    eri_rows  = delivery_variance_signal(issues)
+    risk_rows = delivery_concentration_risks(issues)
     init_risk = _initiative_risk(issues)
     prop_rows = dependency_propagation(issues)
     exec_alerts = executive_alerts(issues, risk_rows, prop_rows, eri_rows)
@@ -370,12 +370,12 @@ def layout(issues):
     risk_section = C.card(
         html.Div("OPERATIONAL RISK SCORE",
                  style={"fontSize":"0.55rem","fontWeight":"800","letterSpacing":"0.18em","color":C.NAVY2,"marginBottom":"8px"}),
-        html.Div("Composite score: Overdue×0.30 + Stale×0.25 + Blockers×0.20 + Bug Rate×0.15 + ERI(inv)×0.10",
+        html.Div("Composite score: Overdue×0.30 + Last Progress×0.25 + Blockers×0.20 + Bug Rate×0.15 + ERI(inv)×0.10",
                  style={"fontSize":"0.68rem","color":C.MUTED,"marginBottom":"12px","fontStyle":"italic"}),
         C.grid(_g(_risk_chart(risk_rows), "int-risk", 280),
                _g(init_risk_fig, "int-init-risk", 280), cols=2),
         html.Table([
-            html.Thead(html.Tr([html.Th(h) for h in ["Assignee","Risk Score","Open","Overdue","Stale","Blockers","ERI"]],
+            html.Thead(html.Tr([html.Th(h) for h in ["Assignee","Risk Score","Open","Overdue","Last Progress","Blockers","ERI"]],
                                style={"background":C.ACCENT2})),
             html.Tbody(risk_table_rows),
         ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem","marginTop":"12px"}),

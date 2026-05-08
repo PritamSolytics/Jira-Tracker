@@ -1,6 +1,6 @@
 """
 ml_page.py — Predictive Analytics Engine UI
-Slip predictor, risk clustering, anomaly detection, customizable training.
+Slip predictor, risk clustering, outlier pattern detection, customizable training.
 """
 from dash import html, dcc, Input, Output, State
 import plotly.graph_objects as go
@@ -128,7 +128,7 @@ def layout(issues):
 
             # Col 3: contamination + max depth
             html.Div([
-                html.Label("Anomaly Contamination %", style={"fontSize":"0.63rem","fontWeight":"700","color":C.MUTED,
+                html.Label("Outlier Contamination %", style={"fontSize":"0.63rem","fontWeight":"700","color":C.MUTED,
                              "textTransform":"uppercase","letterSpacing":"0.08em"}),
                 dcc.Slider(id="ml-contamination", min=0.05, max=0.3, step=0.05, value=0.1,
                            marks={0.05:"5%",0.1:"10%",0.2:"20%",0.3:"30%"},
@@ -176,22 +176,22 @@ def layout(issues):
         donut_fig.update_layout(**L, title=_t("Risk Cluster Distribution"))
 
         # Slip probability histogram
-        probs = [p["slip_prob"] for p in preds]
+        probs = [p["delivery_risk_signal"] for p in preds]
         hist_fig = go.Figure(go.Histogram(
             x=probs, nbinsx=10,
             marker_color=C.ACCENT, opacity=0.8,
             hovertemplate="Slip Prob: %{x}%<br>Count: %{y}<extra></extra>",
         ))
-        hist_fig.update_layout(**L, title=_t("Slip Probability Distribution"),
-            xaxis=dict(title="Slip Probability %", gridcolor=C.BORDER),
+        hist_fig.update_layout(**L, title=_t("Delivery Risk Signal Distribution"),
+            xaxis=dict(title="Delivery Risk Signal %", gridcolor=C.BORDER),
             yaxis=dict(title="Count", gridcolor=C.BORDER))
 
-        # Anomaly panel
-        anomaly_issues = [p for p in preds if p["is_anomaly"]]
-        anomaly_card = C.card(
-            html.Div("ANOMALY DETECTION — ISOLATION FOREST",
+        # Outlier panel
+        outlier_issues = [p for p in preds if p["is_outlier"]]
+        outlier_card = C.card(
+            html.Div("OUTLIER PATTERN DETECTION — ISOLATION FOREST",
                      style={"fontSize":"0.55rem","fontWeight":"800","letterSpacing":"0.18em","color":C.RED,"marginBottom":"8px"}),
-            html.Div(f"{len(anomaly_issues)} statistically abnormal open issues detected "
+            html.Div(f"{len(outlier_issues)} statistically abnormal open issues detected "
                      f"(contamination={int(meta.get('contamination',0.1)*100)}%)",
                      style={"fontSize":"0.68rem","color":C.MUTED,"marginBottom":"10px"}),
             html.Div([
@@ -202,12 +202,12 @@ def layout(issues):
                                   "fontSize":"0.7rem","fontWeight":"700","textDecoration":"none","marginRight":"8px"}),
                     html.Span(a["assignee"], style={"color":C.TEXT,"fontSize":"0.7rem","marginRight":"8px"}),
                     C.status_badge(a["status"]),
-                    html.Span(f"  Slip: {a['slip_prob']}%",
-                              style={"color":_slip_color(a["slip_prob"]),"fontWeight":"700","fontSize":"0.68rem"}),
+                    html.Span(f"  Slip: {a['delivery_risk_signal']}%",
+                              style={"color":_slip_color(a["delivery_risk_signal"]),"fontWeight":"700","fontSize":"0.68rem"}),
                 ], style={"padding":"5px 8px","background":"#FEF2F2","borderRadius":"4px",
                           "marginBottom":"4px","display":"flex","flexWrap":"wrap","gap":"4px"})
-                for a in anomaly_issues[:15]
-            ]) if anomaly_issues else html.Div("No anomalies detected.", style={"color":C.GREEN,"fontSize":"0.75rem"}),
+                for a in outlier_issues[:15]
+            ]) if outlier_issues else html.Div("No anomalies detected.", style={"color":C.GREEN,"fontSize":"0.75rem"}),
         )
 
         # Predictions table
@@ -223,17 +223,17 @@ def layout(issues):
                 html.Td(p["priority"],
                         style={"color":C.pc(p["priority"]),"fontWeight":"700","fontSize":"0.72rem"}),
                 html.Td([
-                    html.Span(f"{p['slip_prob']}%",
-                              style={"color":_slip_color(p["slip_prob"]),"fontWeight":"900",
+                    html.Span(f"{p['delivery_risk_signal']}%",
+                              style={"color":_slip_color(p["delivery_risk_signal"]),"fontWeight":"900",
                                      "fontFamily":"JetBrains Mono,monospace","fontSize":"0.8rem"}),
-                    _progress_bar(p["slip_prob"], color=_slip_color(p["slip_prob"])),
+                    _progress_bar(p["delivery_risk_signal"], color=_slip_color(p["delivery_risk_signal"])),
                 ], style={"width":"110px"}),
                 html.Td(p["cluster_label"],
                         style={"fontSize":"0.72rem","fontWeight":"700",
                                "color":C.RED if "Critical" in p["cluster_label"]
                                        else (C.AMBER if "Elevated" in p["cluster_label"] else C.GREEN)}),
-                html.Td("Yes" if p["is_anomaly"] else "—",
-                        style={"color":C.RED if p["is_anomaly"] else C.MUTED,
+                html.Td("Yes" if p["is_outlier"] else "—",
+                        style={"color":C.RED if p["is_outlier"] else C.MUTED,
                                "fontWeight":"700","fontSize":"0.7rem"}),
                 html.Td(str(p["blocker_count"]),
                         style={"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem",
@@ -254,7 +254,7 @@ def layout(issues):
             html.Table([
                 html.Thead(html.Tr([
                     html.Th(h) for h in
-                    ["Issue","Assignee","Status","Priority","Slip Probability","Risk Cluster","Anomaly","Blockers","Stale"]
+                    ["Issue","Assignee","Status","Priority","Delivery Risk Signal","Risk Cluster","Outlier","Blockers","Last Progress"]
                 ], style={"background":C.ACCENT2})),
                 html.Tbody(pred_table_rows),
             ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem"}),
@@ -268,16 +268,16 @@ def layout(issues):
     else:
         pred_card  = html.Div("Train the model to view predictions.", style={"color":C.MUTED,"padding":"20px","fontSize":"0.75rem"})
         charts_row = html.Div()
-        anomaly_card = html.Div()
+        outlier_card = html.Div()
 
     return html.Div([
         C.section("Predictive Analytics",
-                  "Deadline slip predictor  |  Risk clustering  |  Anomaly detection"),
+                  "Deadline slip predictor  |  Risk clustering  |  Outlier detection"),
         C.grid(status_card, train_card, cols=2),
         html.Div(style={"marginTop":"16px"}),
         charts_row,
         html.Div(style={"marginTop":"16px"}),
-        anomaly_card if ready else html.Div(),
+        outlier_card if ready else html.Div(),
         html.Div(style={"marginTop":"16px"}),
         pred_card,
     ])

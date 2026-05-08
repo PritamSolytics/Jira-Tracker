@@ -61,7 +61,7 @@ def layout(issues):
         C.kpi("Story-Linked",           n_linked,   C.GREEN,  f"{round(n_linked/max(1,total)*100,1)}%"),
         C.kpi("Floating (Unlinked)",    n_floating, C.RED,    f"{float_pct}%"),
         C.kpi("Float Open",             sum(1 for i in floating if i["status"]!="Closed"), C.ORANGE),
-        C.kpi("Float Past Due",         sum(1 for i in floating if "Past Due" in i["due_flag"]), C.RED),
+        C.kpi("Float Beyond Target Date",         sum(1 for i in floating if "Beyond Target Date" in i["due_flag"]), C.RED),
     ], style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"16px"})
 
     # ── Donut: linked vs floating ──────────────────────────────────────────────
@@ -134,7 +134,7 @@ def layout(issues):
 
     # ── Floating table ─────────────────────────────────────────────────────────
     float_open = [i for i in floating if i["status"] != "Closed"]
-    float_rows = sorted(float_open, key=lambda x: x["days_stale"], reverse=True)[:50]
+    float_rows = sorted(float_open, key=lambda x: x["days_since_progress"], reverse=True)[:50]
     float_table = dash_table.DataTable(
         id="tl-float-table",
         data=[{
@@ -144,12 +144,12 @@ def layout(issues):
             "Status":   i["status"],
             "Assignee": i["assignee"],
             "Priority": i["priority"],
-            "Stale (d)":i["days_stale"],
+            "Last Progress (d)":i["days_since_progress"],
             "Due":      i["due"] or "—",
             "Due Flag": i["due_flag"],
         } for i in float_rows],
         columns=[{"name":c,"id":c} for c in
-                 ["Key","Summary","Type","Status","Assignee","Priority","Stale (d)","Due","Due Flag"]],
+                 ["Key","Summary","Type","Status","Assignee","Priority","Last Progress (d)","Due","Due Flag"]],
         page_size=20, filter_action="native", sort_action="native",
         export_format="csv",
         style_table={"overflowX":"auto","borderRadius":"8px","border":f"1px solid {C.BORDER}"},
@@ -159,15 +159,15 @@ def layout(issues):
         style_header={"background":C.ACCENT2,"fontWeight":"800","color":C.NAVY,
                        "fontSize":"0.65rem","letterSpacing":"0.07em","textTransform":"uppercase"},
         style_data_conditional=[
-            {"if":{"filter_query":"{Due Flag} contains 'Past Due'"},"color":C.RED,"fontWeight":"700"},
-            {"if":{"filter_query":"{Stale (d)} > 14"},"backgroundColor":"#FFF7ED"},
+            {"if":{"filter_query":"{Due Flag} contains 'Beyond Target Date'"},"color":C.RED,"fontWeight":"700"},
+            {"if":{"filter_query":"{Last Progress (d)} > 14"},"backgroundColor":"#FFF7ED"},
             {"if":{"row_index":"odd"},"backgroundColor":C.BG},
         ],
     )
 
     # ── Linked table ───────────────────────────────────────────────────────────
     linked_open = [i for i in linked if i["status"] not in ("Closed",) and i["type"] not in ("Story","Epic")]
-    linked_rows = sorted(linked_open, key=lambda x: x["days_stale"], reverse=True)[:50]
+    linked_rows = sorted(linked_open, key=lambda x: x["days_since_progress"], reverse=True)[:50]
     linked_table = dash_table.DataTable(
         id="tl-linked-table",
         data=[{
@@ -178,11 +178,11 @@ def layout(issues):
             "Assignee": i["assignee"],
             "Priority": i["priority"],
             "Parent":   i.get("parent","—") or "—",
-            "Stale (d)":i["days_stale"],
+            "Last Progress (d)":i["days_since_progress"],
             "Due Flag": i["due_flag"],
         } for i in linked_rows],
         columns=[{"name":c,"id":c} for c in
-                 ["Key","Summary","Type","Status","Assignee","Priority","Parent","Stale (d)","Due Flag"]],
+                 ["Key","Summary","Type","Status","Assignee","Priority","Parent","Last Progress (d)","Due Flag"]],
         page_size=20, filter_action="native", sort_action="native",
         export_format="csv",
         style_table={"overflowX":"auto","borderRadius":"8px","border":f"1px solid {C.BORDER}"},
@@ -192,7 +192,7 @@ def layout(issues):
         style_header={"background":"#F0FDF4","fontWeight":"800","color":C.GREEN,
                        "fontSize":"0.65rem","letterSpacing":"0.07em","textTransform":"uppercase"},
         style_data_conditional=[
-            {"if":{"filter_query":"{Due Flag} contains 'Past Due'"},"color":C.RED,"fontWeight":"700"},
+            {"if":{"filter_query":"{Due Flag} contains 'Beyond Target Date'"},"color":C.RED,"fontWeight":"700"},
             {"if":{"row_index":"odd"},"backgroundColor":C.BG},
         ],
     )

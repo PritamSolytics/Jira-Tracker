@@ -170,7 +170,7 @@ def _build_survival_card(issues):
     survival = []
     n_total = len(open_issues)
     for bucket in age_buckets:
-        still_open = sum(1 for i in open_issues if i["days_stale"] >= bucket)
+        still_open = sum(1 for i in open_issues if i["days_since_progress"] >= bucket)
         survival.append(round(still_open / max(1, n_total) * 100, 1))
 
     fig = go.Figure()

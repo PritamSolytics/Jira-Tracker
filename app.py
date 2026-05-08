@@ -52,8 +52,8 @@ def calc_health(issues):
     if not issues: return 100
     open_i = [i for i in issues if i["status"] != "Closed"]
     if not open_i: return 100
-    overdue_pct  = sum(1 for i in open_i if "Past Due" in i["due_flag"]) / len(open_i)
-    stale_pct    = sum(1 for i in open_i if i["days_stale"] > 7) / len(open_i)
+    overdue_pct  = sum(1 for i in open_i if "Beyond Target Date" in i["due_flag"]) / len(open_i)
+    stale_pct    = sum(1 for i in open_i if i["days_since_progress"] > 7) / len(open_i)
     bug_pct      = sum(1 for i in issues if i["type"] == "Bug") / len(issues)
     unassign_pct = sum(1 for i in open_i if i["assignee"] == "Unassigned") / len(open_i)
     score = 100 - (overdue_pct*40 + stale_pct*25 + bug_pct*20 + unassign_pct*15)
@@ -62,8 +62,8 @@ def calc_health(issues):
 # ── At-risk score ──────────────────────────────────────────────
 def at_risk_score(i):
     score = 0
-    if "Past Due" in i["due_flag"]: score += 40
-    if i["days_stale"] > 7: score += 20
+    if "Beyond Target Date" in i["due_flag"]: score += 40
+    if i["days_since_progress"] > 7: score += 20
     if i["type"] == "Bug": score += 15
     if i["priority"] in ("Highest","High"): score += 15
     if i["assignee"] == "Unassigned": score += 10
@@ -267,13 +267,13 @@ def page_command(issues, all_issues):
 
     # KPI strip
     closed=sum(1 for i in issues if i["status"]=="Closed")
-    overdue=sum(1 for i in issues if "Past Due" in i["due_flag"])
+    overdue=sum(1 for i in issues if "Beyond Target Date" in i["due_flag"])
     kpi_strip=html.Div([
         C.kpi("Total",len(issues),C.NAVY),C.kpi("Closed",closed,C.GREEN,f"{round(closed/max(1,len(issues))*100,1)}%"),
-        C.kpi("Past Due",overdue,C.RED),C.kpi("Bugs",sum(1 for i in issues if i["type"]=="Bug"),C.ORANGE),
+        C.kpi("Beyond Target Date",overdue,C.RED),C.kpi("Bugs",sum(1 for i in issues if i["type"]=="Bug"),C.ORANGE),
         C.kpi("In Dev",sum(1 for i in issues if i["status"]=="Development In Progress"),C.AMBER),
         C.kpi("In QA",sum(1 for i in issues if "QA" in i["status"]),C.PURPLE),
-        C.kpi("Blockers",len(blockers),C.RED),C.kpi("Stale >7d",sum(1 for i in open_issues if i["days_stale"]>7),C.MUTED),
+        C.kpi("Blockers",len(blockers),C.RED),C.kpi("Last Progress >7d",sum(1 for i in open_issues if i["days_since_progress"]>7),C.MUTED),
     ],style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"16px"})
 
     return html.Div([
@@ -309,10 +309,10 @@ def page_people(issues, all_issues):
     for a, items in sorted(by_a.items(),key=lambda x:-len(x[1])):
         open_i=[i for i in items if i["status"]!="Closed"]
         closed=len(items)-len(open_i)
-        overdue=sum(1 for i in open_i if "Past Due" in i["due_flag"])
+        overdue=sum(1 for i in open_i if "Beyond Target Date" in i["due_flag"])
         bugs=sum(1 for i in items if i["type"]=="Bug")
-        stale=sum(1 for i in open_i if i["days_stale"]>7)
-        avg_stale=round(sum(i["days_stale"] for i in open_i)/max(1,len(open_i)),1)
+        stale=sum(1 for i in open_i if i["days_since_progress"]>7)
+        avg_stale=round(sum(i["days_since_progress"] for i in open_i)/max(1,len(open_i)),1)
         bottleneck=blocking_map.get(a,0)
         tl=C.traffic_light(overdue,len(open_i))
 
@@ -332,21 +332,21 @@ def page_people(issues, all_issues):
                 html.Div([
                     html.Span(tl,style={"fontSize":"1.2rem","marginRight":"8px"}),
                     html.Span(a,style={"fontWeight":"800","fontSize":"0.88rem","color":C.NAVY}),
-                    html.Span(" CAPACITY AVAILABLE",style={"background":"#F0FDF4","color":C.GREEN,"borderRadius":"3px","padding":"1px 6px","fontSize":"0.6rem","fontWeight":"800","marginLeft":"8px"}) if capacity else None,
+                    html.Span(" LOWER ACTIVE ALLOCATION",style={"background":"#F0FDF4","color":C.GREEN,"borderRadius":"3px","padding":"1px 6px","fontSize":"0.6rem","fontWeight":"800","marginLeft":"8px"}) if capacity else None,
                     html.Span(f"⚠ {bottleneck} blocking",style={"background":"#FEF2F2","color":C.RED,"borderRadius":"3px","padding":"1px 6px","fontSize":"0.6rem","fontWeight":"800","marginLeft":"8px"}) if bottleneck else None,
                 ],style={"display":"flex","alignItems":"center"}),
                 html.Div(lbl_str,style={"color":C.MUTED,"fontSize":"0.68rem","marginTop":"3px"}),
             ]),
             html.Div([
                 C.kpi("Open",len(open_i),C.ACCENT),C.kpi("Closed",closed,C.GREEN),
-                C.kpi("Past Due",overdue,C.RED),C.kpi("Bugs",bugs,C.ORANGE),
-                C.kpi("Stale>7d",stale,C.MUTED),C.kpi("Avg Stale",f"{avg_stale}d",C.MUTED),
+                C.kpi("Beyond Target Date",overdue,C.RED),C.kpi("Bugs",bugs,C.ORANGE),
+                C.kpi("Last Progress>7d",stale,C.MUTED),C.kpi("Avg Last Progress",f"{avg_stale}d",C.MUTED),
             ],style={"display":"flex","gap":"8px","flexWrap":"wrap","marginTop":"10px"}),
             status_pills,
         ],style={"background":C.SURFACE,"borderRadius":"10px","padding":"14px","border":f"1px solid {card_border}","marginBottom":"8px","boxShadow":"0 1px 6px rgba(11,29,58,0.05)","borderLeft":f"4px solid {card_border}"}))
 
     return html.Div([
-        accordion("📊 Charts — Load vs Staleness & Status Heatmap",
+        accordion("📊 Charts — Load vs Last Progressness & Status Heatmap",
             C.grid(_g(CH.bubble_chart(issues),"p-b",380), _g(CH.heatmap(issues),"p-h",380), cols=2),
             "p-charts", True),
         accordion("📦 Allocation Density by Label",
@@ -370,9 +370,9 @@ def page_initiatives(issues, all_issues):
         score=calc_health(items)
         color=C.GREEN if score>=70 else (C.AMBER if score>=40 else C.RED)
         open_i=[i for i in items if i["status"]!="Closed"]
-        overdue=sum(1 for i in open_i if "Past Due" in i["due_flag"])
+        overdue=sum(1 for i in open_i if "Beyond Target Date" in i["due_flag"])
         bugs=sum(1 for i in items if i["type"]=="Bug")
-        stale=sum(1 for i in open_i if i["days_stale"]>7)
+        stale=sum(1 for i in open_i if i["days_since_progress"]>7)
         closed=len(items)-len(open_i)
         unassigned=sum(1 for i in open_i if i["assignee"]=="Unassigned")
         top_assignees=Counter(i["assignee"] for i in open_i).most_common(3)
@@ -396,7 +396,7 @@ def page_initiatives(issues, all_issues):
             html.Div([
                 C.kpi("Open",len(open_i),C.ACCENT),C.kpi("Closed",closed,C.GREEN),
                 C.kpi("Overdue",overdue,C.RED),C.kpi("Bugs",bugs,C.ORANGE),
-                C.kpi("Stale",stale,C.MUTED),C.kpi("Unassigned",unassigned,C.MUTED),
+                C.kpi("Last Progress",stale,C.MUTED),C.kpi("Unassigned",unassigned,C.MUTED),
             ],style={"display":"flex","gap":"6px","flexWrap":"wrap","marginBottom":"8px"}),
             html.Div([
                 html.Span("Top assignees: ",style={"color":C.MUTED,"fontSize":"0.67rem","fontWeight":"600"}),
@@ -418,8 +418,8 @@ def page_initiatives(issues, all_issues):
 # REMAINING PAGES
 # ══════════════════════════════════════════════════════════════
 def page_items(issues,_):
-    cols=["key","summary","type","status","assignee","priority","label_display","project","created","updated","due","due_flag","days_stale","comments_count"]
-    hdrs=["Key","Summary","Type","Status","Assignee","Priority","Label","Project","Created","Updated","Due","Due Flag","Stale","Comments"]
+    cols=["key","summary","type","status","assignee","priority","label_display","project","created","updated","due","due_flag","days_since_progress","comments_count"]
+    hdrs=["Key","Summary","Type","Status","Assignee","Priority","Label","Project","Created","Updated","Due","Due Flag","Last Progress","Comments"]
     return html.Div([C.section(f"{len(issues)} Issues"),
         dash_table.DataTable(id="items-tbl",
             data=[{h:i.get(c,"") for h,c in zip(hdrs,cols)} for i in issues],
@@ -429,7 +429,7 @@ def page_items(issues,_):
             style_cell={"background":C.SURFACE,"color":C.TEXT,"border":f"1px solid {C.BORDER}","fontSize":"0.74rem","padding":"8px 12px","fontFamily":"'DM Sans',sans-serif","textAlign":"left","maxWidth":"260px","overflow":"hidden","textOverflow":"ellipsis"},
             style_header={"background":C.ACCENT2,"fontWeight":"800","color":C.NAVY,"border":f"1px solid {C.BORDER}","fontSize":"0.67rem","letterSpacing":"0.07em","textTransform":"uppercase"},
             style_data_conditional=[
-                {"if":{"filter_query":"{Due Flag} contains 'Past Due'"},"color":C.RED,"fontWeight":"700"},
+                {"if":{"filter_query":"{Due Flag} contains 'Beyond Target Date'"},"color":C.RED,"fontWeight":"700"},
                 {"if":{"filter_query":"{Type} = 'Bug'"},"color":C.ORANGE},
                 {"if":{"row_index":"odd"},"backgroundColor":C.BG},
             ])])
@@ -461,7 +461,7 @@ def page_workflow(issues,_):
     ORDER=["Groomed","To Do","Development In Progress","Code Review","Integration Testing","Fixing in Progress","Ready For QA Testing","QA Testing","Closed"]
     c=Counter(i["status"] for i in issues)
     avg_stale=defaultdict(list)
-    for i in issues: avg_stale[i["status"]].append(i["days_stale"])
+    for i in issues: avg_stale[i["status"]].append(i["days_since_progress"])
     gate_cards=[html.Div([
         html.Div(str(c.get(s,0)),style={"fontSize":"1.8rem","fontWeight":"800","color":C.sc(s),"fontFamily":"JetBrains Mono,monospace"}),
         html.Div(s,style={"fontSize":"0.65rem","fontWeight":"700","color":C.sc(s),"marginTop":"3px"}),
@@ -505,18 +505,18 @@ def page_alerts(issues,_):
                 ],style={"background":C.SURFACE if ri%2==0 else C.BG}) for ri,r in enumerate(rows)])],
                 style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem"}),
             style={"marginBottom":"12px"})
-    past_due=[i for i in issues if "Past Due" in i["due_flag"] and i["status"]!="Closed"]
-    no_act=[i for i in issues if i["days_stale"]>7 and i["status"] not in ("Closed","Rejected")]
+    beyond_target_date=[i for i in issues if "Beyond Target Date" in i["due_flag"] and i["status"]!="Closed"]
+    no_act=[i for i in issues if i["days_since_progress"]>7 and i["status"] not in ("Closed","Rejected")]
     unassigned=[i for i in issues if i["assignee"]=="Unassigned" and i["status"]!="Closed"]
     crit_bugs=[i for i in issues if i["type"]=="Bug" and i["priority"] in ("Highest","High") and i["status"]!="Closed"]
-    for i in past_due: i["_detail"]=i["due_flag"]
-    for i in no_act: i["_detail"]=f"No update {i['days_stale']}d"
+    for i in beyond_target_date: i["_detail"]=i["due_flag"]
+    for i in no_act: i["_detail"]=f"No update {i['days_since_progress']}d"
     for i in crit_bugs: i["_detail"]=f"{i['priority']} Bug"
     return html.Div([
-        html.Div([C.kpi("Past Due",len(past_due),C.RED),C.kpi("No Activity >7d",len(no_act),C.ORANGE),
+        html.Div([C.kpi("Beyond Target Date",len(beyond_target_date),C.RED),C.kpi("No Activity >7d",len(no_act),C.ORANGE),
                   C.kpi("Unassigned",len(unassigned),C.MUTED),C.kpi("High Bugs",len(crit_bugs),"#DC2626")],
                  style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"20px"}),
-        _tbl("Past Due Date",past_due,C.RED),_tbl("No Activity >7 Days",no_act,C.ORANGE),
+        _tbl("Beyond Target Date Date",beyond_target_date,C.RED),_tbl("No Activity >7 Days",no_act,C.ORANGE),
         _tbl("Unassigned",unassigned,C.MUTED),_tbl("High/Highest Bugs",crit_bugs,"#DC2626"),
     ])
 

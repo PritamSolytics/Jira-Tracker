@@ -115,7 +115,7 @@ def engineer_features(issues):
             "updated":                updated,
             "due":                    due,
             "fix_version":            i.get("fix_version", "") or "",
-            "days_open":              i.get("days_stale", 0),
+            "days_open":              i.get("days_since_progress", 0),
             "cycle_time":             cycle_time,
             "has_due":                1 if due else 0,
             "priority_score":         {"Highest":4,"High":3,"Medium":2,"Low":1,"Lowest":0}.get(priority, 2),
@@ -259,8 +259,8 @@ def predict_slip(issues, models=None):
     avail = [f for f in features if f in df.columns]
     X = scaler.transform(df[avail].fillna(0))
 
-    slip_probs    = clf.predict_proba(X)[:, 0]
-    anomaly_flags = iso.predict(X) if iso else [0]*len(X)
+    delivery_risk_signals    = clf.predict_proba(X)[:, 0]
+    outlier_flags = iso.predict(X) if iso else [0]*len(X)
     cluster_ids   = km.predict(X) if km else [-1]*len(X)
     clmap         = meta.get("cluster_labels", {})
 
@@ -273,14 +273,14 @@ def predict_slip(issues, models=None):
             "status":        issue.get("status", ""),
             "priority":      issue.get("priority", ""),
             "type":          issue.get("type", ""),
-            "slip_prob":     round(float(slip_probs[idx]) * 100, 1),
+            "delivery_risk_signal":     round(float(delivery_risk_signals[idx]) * 100, 1),
             "cluster_label": clmap.get(str(int(cluster_ids[idx])), "Standard"),
-            "is_anomaly":    bool(anomaly_flags[idx] == -1),
-            "days_open":     issue.get("days_stale", 0),
+            "is_outlier":    bool(outlier_flags[idx] == -1),
+            "days_open":     issue.get("days_since_progress", 0),
             "blocker_count": int(df.iloc[idx].get("blocker_count", 0)),
             "degree_centrality": round(float(df.iloc[idx].get("degree_centrality", 0)), 4),
         })
-    return sorted(results, key=lambda x: -x["slip_prob"])
+    return sorted(results, key=lambda x: -x["delivery_risk_signal"])
 
 
 def get_meta():

@@ -322,11 +322,11 @@ Return ONLY valid JSON, no markdown:
             yaxis=dict(title="Pressure Index (0–100)",gridcolor=C.BORDER),
             xaxis=dict(gridcolor=C.BORDER))
         # Reallocation
-        capacity concentrated=[(r["a"],r["open"]) for r in a_risk if r["open"]>5]
+        capacity_concentrated=[(r["a"],r["open"]) for r in a_risk if r["open"]>5]
         underloaded=[(a,s["open"]) for a,s in a_stats.items() if s["open"]<3 and a not in ("Unassigned","Former user")]
         realloc=None
-        if capacity concentrated and underloaded:
-            fr=max(capacity concentrated,key=lambda x:x[1])
+        if capacity_concentrated and underloaded:
+            fr=max(capacity_concentrated,key=lambda x:x[1])
             to=min(underloaded,key=lambda x:x[1])
             gain=min(15,(fr[1]-to[1])*2)
             realloc=html.Div([

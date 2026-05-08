@@ -35,7 +35,7 @@ FEATURES_BASE = [
     "days_open", "label_count", "link_count", "blocker_count",
     "blocked_count", "comment_count",
 ]
-FEATURES_GRAPH = ["degree_centrality", "betweenness_centrality", "workload_distribution"]
+FEATURES_GRAPH = ["degree_centrality", "betweenness_centrality", "allocation_density"]
 ALL_FEATURES   = FEATURES_BASE + FEATURES_GRAPH
 
 
@@ -61,10 +61,10 @@ def compute_graph_features(issues):
 
 # ── Feature Engineering ────────────────────────────────────────────────────────
 def engineer_features(issues):
-    workload_distribution = defaultdict(int)
+    allocation_density = defaultdict(int)
     for i in issues:
         if i.get("status") != "Closed":
-            workload_distribution[i.get("assignee", "Unassigned")] += 1
+            allocation_density[i.get("assignee", "Unassigned")] += 1
 
     blocker_count = defaultdict(int)
     blocked_count = defaultdict(int)
@@ -128,7 +128,7 @@ def engineer_features(issues):
             "comment_count":          i.get("comments_count", 0),
             "degree_centrality":      round(deg.get(i.get("key",""), 0.0), 4),
             "betweenness_centrality": round(bet.get(i.get("key",""), 0.0), 4),
-            "workload_distribution":          workload_distribution.get(i.get("assignee","Unassigned"), 0),
+            "allocation_density":          allocation_density.get(i.get("assignee","Unassigned"), 0),
             "closed_on_time":         closed_on_time,
         })
     return pd.DataFrame(rows)

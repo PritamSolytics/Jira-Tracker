@@ -20,38 +20,38 @@ def _g(fig, gid, h=260): return dcc.Graph(figure=fig, id=gid, style={"height":f"
 # ── 1. EXECUTION RELIABILITY INDEX ────────────────────────────────────────────
 def delivery_predictability(issues):
     """
-    Per-assignee predictability score based on standup log ETAs.
-    ERI = (kept promises / total promises with ETA) * 100
-    Adjusted by days-over on broken ones.
+    Per-assignee predictability score based on delivery log ETAs.
+    ERI = (on_time forecast_events / total forecast_events with ETA) * 100
+    Adjusted by days-over on delayed ones.
     """
     logs = ST._load()
     key_map = {i["key"]: i for i in issues}
     today = date.today().isoformat()
 
-    stats = defaultdict(lambda: {"kept":0,"broken":0,"total_days_over":0,"promises":0})
+    stats = defaultdict(lambda: {"on_time":0,"delayed":0,"total_days_over":0,"forecast_events":0})
     for e in logs:
         if not e.get("eta"): continue
         a = e.get("assignee","Unknown")
-        stats[a]["promises"] += 1
+        stats[a]["forecast_events"] += 1
         issue = key_map.get(e["issue_key"],{})
         closed = issue.get("status","") in ("Closed","Rejected") or e.get("status") == "resolved"
         if closed:
-            stats[a]["kept"] += 1
+            stats[a]["on_time"] += 1
         elif e["eta"] < today:
-            stats[a]["broken"] += 1
+            stats[a]["delayed"] += 1
             stats[a]["total_days_over"] += (date.today() - date.fromisoformat(e["eta"])).days
 
     rows = []
     for a, s in stats.items():
-        if s["promises"] < 1: continue
-        base = s["kept"] / max(1, s["promises"]) * 100
+        if s["forecast_events"] < 1: continue
+        base = s["on_time"] / max(1, s["forecast_events"]) * 100
         penalty = min(30, s["total_days_over"] * 0.5)  # max 30pt penalty
         eri = round(max(0, base - penalty), 1)
         rows.append({
             "assignee": a, "eri": eri,
-            "promises": s["promises"], "kept": s["kept"],
-            "broken": s["broken"],
-            "avg_days_over": round(s["total_days_over"] / max(1, s["broken"]), 1),
+            "forecast_events": s["forecast_events"], "on_time": s["on_time"],
+            "delayed": s["delayed"],
+            "avg_days_over": round(s["total_days_over"] / max(1, s["delayed"]), 1),
             "color": C.GREEN if eri >= 70 else (C.AMBER if eri >= 40 else C.RED),
         })
     return sorted(rows, key=lambda x: -x["eri"])
@@ -256,11 +256,11 @@ def executive_alerts(issues, risk_rows, prop_rows, eri_rows):
         })
 
     # Low predictability assignees
-    low_eri = [r for r in eri_rows if r["eri"] < 40 and r["promises"] >= 2][:2]
+    low_eri = [r for r in eri_rows if r["eri"] < 40 and r["forecast_events"] >= 2][:2]
     for r in low_eri:
         alerts.append({
             "level": "WATCH",
-            "message": f"{r['assignee'].split()[0]} has {r['eri']}% execution predictability — {r['broken']} of {r['promises']} commitments missed",
+            "message": f"{r['assignee'].split()[0]} has {r['eri']}% execution predictability — {r['delayed']} of {r['forecast_events']} commitments missed",
             "color": C.AMBER,
         })
 
@@ -316,9 +316,9 @@ def layout(issues):
             html.Td(r["assignee"], style={"fontWeight":"700","fontSize":"0.72rem"}),
             html.Td(f"{r['eri']}%", style={"color":r["color"],"fontWeight":"900",
                     "fontFamily":"JetBrains Mono,monospace","fontSize":"0.8rem"}),
-            html.Td(str(r["promises"]), style={"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
-            html.Td(str(r["kept"]),     style={"color":C.GREEN,"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
-            html.Td(str(r["broken"]),   style={"color":C.RED if r["broken"]>0 else C.MUTED,"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
+            html.Td(str(r["forecast_events"]), style={"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
+            html.Td(str(r["on_time"]),     style={"color":C.GREEN,"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
+            html.Td(str(r["delayed"]),   style={"color":C.RED if r["delayed"]>0 else C.MUTED,"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
             html.Td(f"{r['avg_days_over']}d", style={"color":C.RED if r["avg_days_over"]>3 else C.MUTED,"fontFamily":"JetBrains Mono,monospace","fontSize":"0.72rem"}),
         ], style={"background":C.SURFACE if i%2==0 else C.BG})
         for i,r in enumerate(eri_rows)
@@ -337,7 +337,7 @@ def layout(issues):
         ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem","marginTop":"12px"}),
     ) if eri_rows else C.card(
         html.Div("EXECUTION RELIABILITY INDEX", style={"fontSize":"0.55rem","fontWeight":"800","letterSpacing":"0.18em","color":C.NAVY2,"marginBottom":"8px"}),
-        html.Div("No standup ETA logs found. Start logging updates in the Standup Log page to build predictability data.",
+        html.Div("No standup ETA logs found. Start logging updates in the Delivery Coordination page to build predictability data.",
                  style={"color":C.AMBER,"fontSize":"0.75rem"}),
     )
 

@@ -1,8 +1,8 @@
-"""Persistent standup log store using JSON file on Render disk."""
+"""Persistent delivery log store using JSON file on Render disk."""
 import json, os, time, uuid
 from datetime import datetime
 
-STORE_PATH = os.getenv("STORE_PATH", "/tmp/standup_log.json")
+STORE_PATH = os.getenv("STORE_PATH", "/tmp/delivery_log.json")
 
 def _load():
     try:
@@ -23,7 +23,7 @@ def add_log(issue_key, assignee, update_text, eta, logged_by="PM"):
         "logged_by": logged_by,
         "logged_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "date": datetime.now().strftime("%Y-%m-%d"),
-        "status": "open",              # open | resolved | broken
+        "status": "active",              # open | resolved | delayed
     }
     data.append(entry)
     _save(data)
@@ -44,13 +44,13 @@ def mark_resolved(log_id):
         if e["id"] == log_id: e["status"] = "resolved"
     _save(data)
 
-def get_promise_broken(issues):
+def get_forecast_event_delayed(issues):
     """Returns logs where ETA passed but issue still open."""
     from datetime import date
     today = date.today().isoformat()
     logs = _load()
     key_map = {i["key"]: i for i in issues}
-    broken = []
+    delayed = []
     for e in logs:
         if e["status"] == "resolved": continue
         if not e.get("eta"): continue
@@ -58,5 +58,5 @@ def get_promise_broken(issues):
             issue = key_map.get(e["issue_key"])
             if issue and issue["status"] not in ("Closed","Rejected"):
                 days_over = (date.today() - date.fromisoformat(e["eta"])).days
-                broken.append({**e, "days_over": days_over, "issue": issue})
-    return sorted(broken, key=lambda x: -x["days_over"])
+                delayed.append({**e, "days_over": days_over, "issue": issue})
+    return sorted(delayed, key=lambda x: -x["days_over"])

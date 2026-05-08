@@ -85,7 +85,7 @@ NAV_GROUPS = {
                     ("Advanced Analytics",   "/analytics"),
                     ("Predictive Analytics", "/ml"),
                     ("Data Laboratory",      "/data-lab")],
-    "OPERATIONS":  [("Standup Log",          "/standup"),
+    "OPERATIONS":  [("Delivery Coordination",          "/standup"),
                     ("Alerts",               "/alerts"),
                     ("Settings",             "/settings")],
 }
@@ -184,7 +184,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
         "/timeline":    (page_timeline,     "Delivery Timeline"),
         "/alerts":      (page_alerts,       "Alerts"),
         "/settings":    (page_settings,     "Settings"),
-        "/standup":     (page_standup,      "Standup Log"),
+        "/standup":     (page_standup,      "Delivery Coordination"),
     }
     fn,title=pages.get(path,pages["/"])
     return fn(f,issues),title
@@ -349,7 +349,7 @@ def page_people(issues, all_issues):
         accordion("📊 Charts — Load vs Staleness & Status Heatmap",
             C.grid(_g(CH.bubble_chart(issues),"p-b",380), _g(CH.heatmap(issues),"p-h",380), cols=2),
             "p-charts", True),
-        accordion("📦 Workload Distribution by Label",
+        accordion("📦 Allocation Density by Label",
             C.card(_g(CH.assignee_stacked(issues,D.get_labels(issues)),"p-s",320)),
             "p-stack", False),
         accordion("👤 Workstream Capacity — 🟢 Available (<3 open) · 🟡 Moderate · 🔴 Capacity Concentrated",

@@ -22,6 +22,8 @@ URL     = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
 
 _cache = {"data": [], "ts": 0}
 TTL    = 600
+import threading
+_lock  = threading.Lock()
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
@@ -109,12 +111,14 @@ def _parse(raw):
 def get_issues(force=False):
     now = time.time()
     if force or now - _cache["ts"] > TTL or not _cache["data"]:
-        try:
-            _cache["data"] = [_parse(i) for i in _fetch_all()]
-            _cache["ts"] = now
-            log.info(f"Cache updated: {len(_cache['data'])} issues")
-        except Exception as e:
-            log.error(f"Failed: {e}")
+        with _lock:
+            if force or now - _cache["ts"] > TTL or not _cache["data"]:
+                try:
+                    _cache["data"] = [_parse(i) for i in _fetch_all()]
+                    _cache["ts"] = time.time()
+                    log.info(f"Cache updated: {len(_cache['data'])} issues")
+                except Exception as e:
+                    log.error(f"Failed: {e}")
     return _cache["data"]
 
 def get_labels(issues):

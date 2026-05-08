@@ -58,7 +58,7 @@ def layout(issues):
                 html.Td(C.status_badge(b["issue"]["status"])),
             ], style={"background":"#FFF5F5"}) for b in broken[:20]])
         ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.76rem"}),
-    ]) if broken else html.Div("No broken promises. 🟢", style={"color":C.GREEN,"fontSize":"0.78rem","padding":"12px 0"})
+    ]) if broken else html.Div("No planning variance. 🟢", style={"color":C.GREEN,"fontSize":"0.78rem","padding":"12px 0"})
 
     # Recent logs
     recent = ST.get_logs(days=30)
@@ -81,7 +81,7 @@ def layout(issues):
                     html.Span(f"ETA: {e['eta']}" if e.get("eta") else "No ETA",
                               style={"color":C.RED if (e.get("eta","") < today and issue.get("status") not in ("Closed","Rejected")) else C.AMBER,
                                      "fontSize":"0.68rem","fontWeight":"700","marginRight":"8px"}),
-                    html.Span("✓ Resolved" if e["status"]=="resolved" else ("🚨 Promise Broken" if (e.get("eta","")< today and issue.get("status") not in ("Closed","Rejected")) else ""),
+                    html.Span("✓ Resolved" if e["status"]=="resolved" else ("🚨 Execution Variance" if (e.get("eta","")< today and issue.get("status") not in ("Closed","Rejected")) else ""),
                               style={"color":C.GREEN if e["status"]=="resolved" else C.RED,"fontSize":"0.67rem","fontWeight":"700"}),
                 ], style={"display":"flex","alignItems":"center","flexWrap":"wrap","gap":"4px"}),
                 html.Div(e["update"], style={"color":C.MUTED,"fontSize":"0.73rem","marginTop":"3px","lineHeight":"1.5","paddingLeft":"4px","borderLeft":f"3px solid {C.BORDER}","marginLeft":"4px"}),
@@ -95,7 +95,7 @@ def layout(issues):
             html.Div([
                 log_form,
                 html.Div(id="sl-reload"),
-                C.section("🚨 Broken Promises", "ETA passed, issue still open"),
+                C.section("🚨 Planning Variance Log", "ETA passed, issue still open"),
                 C.card(broken_panel, pad="14px"),
             ], style={"flex":"1","minWidth":"0"}),
             html.Div([

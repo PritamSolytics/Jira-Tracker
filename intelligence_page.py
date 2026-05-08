@@ -1,6 +1,6 @@
 """
 intelligence_page.py — Operational Intelligence
-Execution Reliability Index · Operational Risk Score · Dependency Propagation
+Delivery Predictability Signal · Operational Risk Score · Dependency Propagation
 """
 from dash import html, dcc, dash_table
 import plotly.graph_objects as go
@@ -18,9 +18,9 @@ def _g(fig, gid, h=260): return dcc.Graph(figure=fig, id=gid, style={"height":f"
 
 
 # ── 1. EXECUTION RELIABILITY INDEX ────────────────────────────────────────────
-def execution_reliability(issues):
+def delivery_predictability(issues):
     """
-    Per-assignee reliability score based on standup log ETAs.
+    Per-assignee predictability score based on standup log ETAs.
     ERI = (kept promises / total promises with ETA) * 100
     Adjusted by days-over on broken ones.
     """
@@ -72,7 +72,7 @@ def _eri_chart(rows):
     ))
     fig.add_hline(y=70, line_dash="dot", line_color=C.GREEN, annotation_text="Good (70%)", annotation_font_size=9)
     fig.add_hline(y=40, line_dash="dot", line_color=C.AMBER, annotation_text="Marginal (40%)", annotation_font_size=9)
-    fig.update_layout(**L, title=_t("Execution Reliability Index by Assignee"),
+    fig.update_layout(**L, title=_t("Delivery Predictability Signal by Assignee"),
         yaxis=dict(title="ERI %", gridcolor=C.BORDER, range=[0,115]),
         xaxis=dict(gridcolor=C.BORDER))
     return fig
@@ -85,7 +85,7 @@ def operational_risk_scores(issues):
     overdue rate, stale rate, blocker count, bug rate, ERI (inverted)
     Weights: overdue=0.30, stale=0.25, blockers=0.20, bugs=0.15, eri=0.10
     """
-    eri_map = {r["assignee"]: r["eri"] for r in execution_reliability(issues)}
+    eri_map = {r["assignee"]: r["eri"] for r in delivery_predictability(issues)}
 
     by_a = defaultdict(list)
     for i in issues: by_a[i["assignee"]].append(i)
@@ -255,12 +255,12 @@ def executive_alerts(issues, risk_rows, prop_rows, eri_rows):
             "color": C.RED,
         })
 
-    # Low reliability assignees
+    # Low predictability assignees
     low_eri = [r for r in eri_rows if r["eri"] < 40 and r["promises"] >= 2][:2]
     for r in low_eri:
         alerts.append({
             "level": "WATCH",
-            "message": f"{r['assignee'].split()[0]} has {r['eri']}% execution reliability — {r['broken']} of {r['promises']} commitments missed",
+            "message": f"{r['assignee'].split()[0]} has {r['eri']}% execution predictability — {r['broken']} of {r['promises']} commitments missed",
             "color": C.AMBER,
         })
 
@@ -290,7 +290,7 @@ def executive_alerts(issues, risk_rows, prop_rows, eri_rows):
 
 # ── PAGE LAYOUT ───────────────────────────────────────────────────────────────
 def layout(issues):
-    eri_rows  = execution_reliability(issues)
+    eri_rows  = delivery_predictability(issues)
     risk_rows = operational_risk_scores(issues)
     init_risk = _initiative_risk(issues)
     prop_rows = dependency_propagation(issues)
@@ -337,7 +337,7 @@ def layout(issues):
         ], style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem","marginTop":"12px"}),
     ) if eri_rows else C.card(
         html.Div("EXECUTION RELIABILITY INDEX", style={"fontSize":"0.55rem","fontWeight":"800","letterSpacing":"0.18em","color":C.NAVY2,"marginBottom":"8px"}),
-        html.Div("No standup ETA logs found. Start logging updates in the Standup Log page to build reliability data.",
+        html.Div("No standup ETA logs found. Start logging updates in the Standup Log page to build predictability data.",
                  style={"color":C.AMBER,"fontSize":"0.75rem"}),
     )
 
@@ -421,7 +421,7 @@ def layout(issues):
 
     return html.Div([
         C.section("Operational Intelligence",
-                  "Execution reliability  |  Risk scoring  |  Dependency propagation  |  Decision alerts"),
+                  "Execution predictability  |  Risk scoring  |  Dependency propagation  |  Decision alerts"),
 
         # Executive alert strip
         C.card(alert_cards, pad="16px",

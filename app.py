@@ -74,7 +74,7 @@ NAV_GROUPS = {
     "LEADERSHIP":  [("Executive Intelligence Briefing","/executive-briefing"),
                     ("Sprint Intelligence","/sprint")],
     "OVERVIEW":    [("Command Centre",       "/")],
-    "PEOPLE":      [("Resource Intelligence","/people")],
+    "PEOPLE":      [("Capacity & Workstream Overview","/people")],
     "INITIATIVES": [("Initiative Health",    "/initiatives")],
     "WORK":        [("Work Items",           "/items"),
                     ("Delivery Timeline",    "/timeline"),
@@ -176,7 +176,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
     if path == "/task-linkage": return TL_PAGE.layout(f),  "Task Linkage Analysis"
     pages={
         "/":            (page_command,      "Command Centre"),
-        "/people":      (page_people,       "Resource Intelligence"),
+        "/people":      (page_people,       "Capacity & Workstream Overview"),
         "/initiatives": (page_initiatives,  "Initiative Health"),
         "/items":       (page_items,        "Work Items"),
         "/dependencies":(page_deps,         "Dependency Graph"),
@@ -332,7 +332,7 @@ def page_people(issues, all_issues):
                 html.Div([
                     html.Span(tl,style={"fontSize":"1.2rem","marginRight":"8px"}),
                     html.Span(a,style={"fontWeight":"800","fontSize":"0.88rem","color":C.NAVY}),
-                    html.Span(" AVAILABLE",style={"background":"#F0FDF4","color":C.GREEN,"borderRadius":"3px","padding":"1px 6px","fontSize":"0.6rem","fontWeight":"800","marginLeft":"8px"}) if capacity else None,
+                    html.Span(" CAPACITY AVAILABLE",style={"background":"#F0FDF4","color":C.GREEN,"borderRadius":"3px","padding":"1px 6px","fontSize":"0.6rem","fontWeight":"800","marginLeft":"8px"}) if capacity else None,
                     html.Span(f"⚠ {bottleneck} blocking",style={"background":"#FEF2F2","color":C.RED,"borderRadius":"3px","padding":"1px 6px","fontSize":"0.6rem","fontWeight":"800","marginLeft":"8px"}) if bottleneck else None,
                 ],style={"display":"flex","alignItems":"center"}),
                 html.Div(lbl_str,style={"color":C.MUTED,"fontSize":"0.68rem","marginTop":"3px"}),
@@ -349,10 +349,10 @@ def page_people(issues, all_issues):
         accordion("📊 Charts — Load vs Staleness & Status Heatmap",
             C.grid(_g(CH.bubble_chart(issues),"p-b",380), _g(CH.heatmap(issues),"p-h",380), cols=2),
             "p-charts", True),
-        accordion("📦 Assignee Load by Label",
+        accordion("📦 Workload Distribution by Label",
             C.card(_g(CH.assignee_stacked(issues,D.get_labels(issues)),"p-s",320)),
             "p-stack", False),
-        accordion("👤 Individual Load — 🟢 Available (<3 open) · 🟡 Moderate · 🔴 Overloaded",
+        accordion("👤 Workstream Capacity — 🟢 Available (<3 open) · 🟡 Moderate · 🔴 Capacity Concentrated",
             html.Div(cards), "p-cards", True),
     ])
 

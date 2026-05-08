@@ -316,7 +316,7 @@ def _build_wip_card(issues):
 
 
 def _build_assignee_radar(issues):
-    """Top 6 assignees radar: throughput, quality, speed, reliability."""
+    """Top 6 assignees radar: throughput, quality, speed, predictability."""
     by_a = defaultdict(list)
     for i in issues: by_a[i["assignee"]].append(i)
 

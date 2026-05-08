@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import threading, math
 import ml_page as ML_PAGE
 import intelligence_page as INT_PAGE
-import founder_page as FC_PAGE
+import executive_briefing_page as FC_PAGE
 import sprint_page as SP_PAGE
 import data_lab_page as DL_PAGE
 import analytics_page as AN_PAGE
@@ -71,8 +71,8 @@ def at_risk_score(i):
 
 # ── Nav ────────────────────────────────────────────────────────
 NAV_GROUPS = {
-    "LEADERSHIP":  [("Executive Intelligence Briefing","/founder"),
-                    ("Sprint Intelligence",  "/sprint")],
+    "LEADERSHIP":  [("Executive Intelligence Briefing","/executive-briefing"),
+                    ("Sprint Intelligence","/sprint")],
     "OVERVIEW":    [("Command Centre",       "/")],
     "PEOPLE":      [("Resource Intelligence","/people")],
     "INITIATIVES": [("Initiative Health",    "/initiatives")],
@@ -167,7 +167,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
                          html.Div("Auto-refreshes every 10 minutes.",style={"color":C.MUTED,"fontSize":"0.78rem","marginTop":"6px"})],
                         style={"padding":"80px","textAlign":"center"}),""
     f=filt(issues,labels or [],assignees or [],types or [],statuses or [],projects or [])
-    if path == "/founder":      return FC_PAGE.layout(f), "Executive Intelligence Briefing"
+    if path == "/executive-briefing": return FC_PAGE.layout(f), "Executive Intelligence Briefing"
     if path == "/sprint":       return SP_PAGE.layout(f), "Sprint Intelligence"
     if path == "/intelligence": return INT_PAGE.layout(f), "Operational Intelligence"
     if path == "/ml":           return ML_PAGE.layout(f),  "Predictive Analytics"

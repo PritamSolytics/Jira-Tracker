@@ -1,5 +1,5 @@
 """
-founder_page.py — Executive Intelligence Briefing
+executive_briefing_page.py — Executive Intelligence Briefing
 Single-screen delivery intelligence for leadership.
 Delivery Confidence Score · Predicted slips · Risk summary · Recommended actions.
 """
@@ -89,7 +89,7 @@ def monte_carlo_sprint(issues, n_sim=1000):
                 days_left = (due - date.today()).days
                 if total_days <= days_left: completed += 1
             except: pass
-        results.append(completed / max(1, len(open_issues)))
+        results.append(min(1.0, completed / max(1, len(open_issues))))
 
     p_complete = round(np.mean([r == 1.0 for r in results]) * 100, 1)
     avg_completion = round(np.mean(results) * 100, 1)
@@ -112,8 +112,8 @@ def predicted_slips(issues):
         if i.get("days_stale",0) > 7: risk += 25
         if i["type"] == "Bug": risk += 10
         if i["priority"] in ("Highest","High"): risk += 15
-        scored.append({**i, "slip_risk": min(100, risk)})
-    return sorted(scored, key=lambda x: -x["slip_risk"])[:8]
+        scored.append({**i, "risk_signal": min(100, risk)})
+    return sorted(scored, key=lambda x: -x["risk_signal"])[:8]
 
 
 def layout(issues):
@@ -150,12 +150,12 @@ def layout(issues):
         title={"text":f"DELIVERY CONFIDENCE<br><span style='font-size:0.7em;color:{conf_color}'>{conf_label}</span>",
                "font":{"size":11,"color":C.NAVY2}},
     ))
-    gauge_fig.update_layout(paper_bgcolor=C.SURFACE, margin=dict(l=20,r=20,t=40,b=20), height=220)
+    gauge_fig.update_layout(paper_bgcolor=C.SURFACE, margin=dict(l=30,r=30,t=50,b=30), height=240)
 
     # ── MC distribution ────────────────────────────────────────────────────────
     if mc:
         mc_fig = go.Figure(go.Histogram(
-            x=[r*100 for r in mc["distribution"]],
+            x=[min(100, r*100) for r in mc["distribution"]],
             nbinsx=20,
             marker_color=C.ACCENT, opacity=0.78,
             hovertemplate="Completion: %{x:.0f}%<br>Simulations: %{y}<extra></extra>",
@@ -214,17 +214,17 @@ def layout(issues):
             html.Td(i["summary"][:50], style={"fontSize":"0.7rem","color":C.MUTED}),
             html.Td(C.status_badge(i["status"])),
             html.Td(i["due"] or "—", style={"fontFamily":"JetBrains Mono,monospace","fontSize":"0.7rem"}),
-            html.Td(f"{i['slip_risk']}%",
-                    style={"color":C.RED if i["slip_risk"]>=60 else C.AMBER,
+            html.Td(f"{i['risk_signal']}%",
+                    style={"color":C.RED if i["risk_signal"]>=60 else C.AMBER,
                            "fontWeight":"900","fontFamily":"JetBrains Mono,monospace","fontSize":"0.78rem"}),
         ], style={"background":C.SURFACE if idx%2==0 else C.BG})
         for idx, i in enumerate(slips)
     ]
 
     slip_card = C.card(
-        html.Div("PREDICTED SLIPS — HIGHEST RISK OPEN ISSUES",
+        html.Div("DELIVERY RISK REGISTER — OPEN ISSUES",
                  style={"fontSize":"0.55rem","fontWeight":"800","letterSpacing":"0.18em","color":C.NAVY2,"marginBottom":"10px"}),
-        html.Div(f"Rule-based risk scoring on {len(open_issues)} open issues with due dates",
+        html.Div(f"Composite risk scoring across {len(open_issues)} open issues with due dates",
                  style={"fontSize":"0.65rem","color":C.MUTED,"marginBottom":"10px","fontStyle":"italic"}),
         html.Table([
             html.Thead(html.Tr([html.Th(h) for h in
@@ -240,14 +240,14 @@ def layout(issues):
         C.kpi("Past Due",       len(past_due),    C.RED),
         C.kpi("Active Blockers",len(set(i["key"] for i in blockers)), C.RED),
         C.kpi("Unassigned",     len(unassigned),  C.AMBER),
-        C.kpi("High Risk Slips",sum(1 for i in slips if i["slip_risk"]>=60), C.ORANGE),
+        C.kpi("High Risk Slips",sum(1 for i in slips if i["risk_signal"]>=60), C.ORANGE),
         C.kpi("Sprint Prob.",   f"{mc['p_complete']}%" if mc else "—",
                C.GREEN if mc and mc['p_complete']>=70 else C.RED),
     ], style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"16px"})
 
     return html.Div([
         C.section("Executive Intelligence Briefing",
-                  "Delivery confidence · Sprint simulation · Risk intelligence · Recommended actions"),
+                  "Probabilistic delivery assessment · Scenario simulation · Risk intelligence · Prioritised actions"),
         kpi_strip,
         C.grid(C.card(_g(gauge_fig,"fc-gauge",220)), mc_card, cols=2),
         html.Div(style={"marginTop":"16px"}),
@@ -295,7 +295,7 @@ def _generate_actions(issues, conf, past_due, blockers, unassigned, slips):
         })
 
     # High risk slips
-    high_risk = [i for i in slips if i["slip_risk"] >= 60]
+    high_risk = [i for i in slips if i["risk_signal"] >= 60]
     if high_risk:
         actions.append({
             "action": f"Review {len(high_risk)} high-risk issues before next standup",

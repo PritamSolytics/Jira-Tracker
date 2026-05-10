@@ -59,7 +59,7 @@ def _parse(raw):
         dd = date.fromisoformat(due)
         st = f.get("status", {}).get("name", "")
         if st == "Closed":         due_flag = "Closed"
-        elif dd < today:           due_flag = f"Past Due Date ({(today-dd).days}d)"
+        elif dd < today:           due_flag = f"Beyond Target Date ({(today-dd).days}d)"
         elif (dd-today).days <= 7: due_flag = "Due This Week"
         else:                      due_flag = "On Track"
     else:
@@ -97,7 +97,8 @@ def _parse(raw):
         "updated":        updated,
         "due":            due,
         "due_flag":       due_flag,
-        "days_stale":     days_stale,
+        "days_stale":          days_stale,
+        "days_since_progress": days_stale,   # canonical alias — used across all pages
         "comments_count": len(comments),
         "latest_comment": latest_comment,
         "links":          links,

@@ -12,6 +12,7 @@ import sprint_page as SP_PAGE
 import data_lab_page as DL_PAGE
 import analytics_page as AN_PAGE
 import task_linkage_page as TL_PAGE
+import six_sigma_page as SS_PAGE
 
 
 def accordion(title, children, id_key, default_open=True):
@@ -84,6 +85,7 @@ NAV_GROUPS = {
     "ANALYTICS":   [("Operational Intelligence","/intelligence"),
                     ("Advanced Analytics",   "/analytics"),
                     ("Predictive Analytics", "/ml"),
+                    ("Six Sigma BB",         "/six-sigma"),
                     ("Data Laboratory",      "/data-lab")],
     "OPERATIONS":  [("Delivery Coordination",          "/standup"),
                     ("Alerts",               "/alerts"),
@@ -174,6 +176,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
     if path == "/data-lab":     return DL_PAGE.layout(f),  "Data Laboratory"
     if path == "/analytics":    return AN_PAGE.layout(f),  "Advanced Analytics"
     if path == "/task-linkage": return TL_PAGE.layout(f),  "Task Linkage Analysis"
+    if path == "/six-sigma":    return SS_PAGE.layout(f),   "Six Sigma Black Belt"
     pages={
         "/":            (page_command,      "Command Centre"),
         "/people":      (page_people,       "Capacity & Workstream Overview"),
@@ -584,6 +587,7 @@ SP_PAGE.register_callbacks(app, D.get_issues)
 DL_PAGE.register_callbacks(app, D.get_issues)
 AN_PAGE.register_callbacks(app, D.get_issues)
 TL_PAGE.register_callbacks(app, D.get_issues)
+SS_PAGE.register_callbacks(app, D.get_issues)
 
 if __name__=="__main__":
     app.run(debug=False,host="0.0.0.0",port=8050)

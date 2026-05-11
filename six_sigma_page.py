@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import components as C
 import six_sigma_engine as SS
+import data as D
 
 # ── Layout constants ──────────────────────────────────────────────────────────
 L = dict(
@@ -58,11 +59,19 @@ def _t(text):
 
 # ── Main layout ───────────────────────────────────────────────────────────────
 def layout(issues):
-    summary   = SS.dmaic_summary(issues)
+    # Fetch changelog for real RTY — served from 24h cache after first load
+    # On cold start this may be empty (background thread still fetching)
+    changelog = D.get_changelog()
+    rty_mode  = "changelog" if changelog else "approximation"
+    changelog_cold = not bool(changelog)
+
+    summary   = SS.dmaic_summary(issues, changelog_data=changelog)
     cap       = SS.process_capability(issues)
     dpmo_data = SS.dpmo_sigma(issues, group_by="label")
     fmea      = SS.build_fmea(issues)
-    rty_data  = SS.rolled_throughput_yield(issues)
+    rty_data  = SS.rolled_throughput_yield(issues, changelog_data=changelog)
+    rty_data["cold"] = changelog_cold
+    rty_data["mode"] = rty_mode
     msa       = SS.msa_audit(issues)
     xmr_vel   = SS.xmr_control_chart(issues, metric="weekly_closed")
     xmr_ct    = SS.xmr_control_chart(issues, metric="cycle_time")
@@ -528,15 +537,38 @@ def _build_fmea_table(fmea):
 
 # ── 6. RTY Section ────────────────────────────────────────────────────────────
 def _build_rty_section(rty_data):
-    rty = rty_data.get("rty", 0)
+    rty    = rty_data.get("rty", 0)
     stages = rty_data.get("stages", [])
+    cold   = rty_data.get("cold", False)
+    color  = C.GREEN if rty > 90 else (C.AMBER if rty > 70 else C.RED)
 
-    color = C.GREEN if rty > 90 else (C.AMBER if rty > 70 else C.RED)
+    cold_banner = html.Div([
+        html.Span("⏳ ", style={"fontSize": "0.8rem"}),
+        html.Span(
+            "Changelog data is loading in the background (first load only). "
+            "RTY is currently showing approximation. Refresh in ~60 seconds for real stage-level data.",
+            style={"fontSize": "0.67rem", "color": C.AMBER, "fontWeight": "600"},
+        ),
+    ], style={
+        "padding": "8px 12px", "background": "#FFFBEB",
+        "borderRadius": "6px", "border": f"1px solid {C.AMBER}44",
+        "marginBottom": "10px",
+    }) if cold else html.Div()
+
+    mode_label = rty_data.get("mode", "approximation")
+    mode_color = C.GREEN if mode_label == "changelog" else C.AMBER
+    mode_text  = "Real (Jira Changelog)" if mode_label == "changelog" else "Approximation — changelog pending"
 
     header = html.Div([
-        html.Div("ROLLED THROUGHPUT YIELD", style={
-            "fontSize": "0.58rem", "fontWeight": "800", "letterSpacing": "0.16em", "color": C.NAVY2,
-        }),
+        html.Div([
+            html.Span("ROLLED THROUGHPUT YIELD", style={
+                "fontSize": "0.58rem", "fontWeight": "800", "letterSpacing": "0.16em", "color": C.NAVY2,
+            }),
+            html.Span(f"  [{mode_text}]", style={
+                "fontSize": "0.58rem", "color": mode_color, "fontWeight": "700",
+                "fontFamily": "JetBrains Mono,monospace", "marginLeft": "8px",
+            }),
+        ], style={"display": "flex", "alignItems": "center"}),
         html.Div([
             html.Span(f"{rty}%", style={
                 "fontSize": "2rem", "fontWeight": "900", "color": color,

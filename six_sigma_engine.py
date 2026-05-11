@@ -95,7 +95,8 @@ def _is_defect(issue):
             return True, "Late Closure"
 
     # 2. Rework (Fixing in Progress after Closed/QA)
-    if status in ("Fixing in Progress", "Reopened"):
+    # Check BOTH: status (future-proof) and label (current NNG convention)
+    if status in ("Fixing in Progress", "Reopened") or "Reopened" in (issue.get("labels") or []):
         return True, "Rework"
 
     # 3. Cycle time exceeds SLA
@@ -383,7 +384,8 @@ def build_fmea(issues):
     n_open        = len(open_issues)
 
     overdue_count   = sum(1 for i in open_issues if "Beyond Target Date" in i.get("due_flag",""))
-    rework_count    = sum(1 for i in issues if i["status"] in ("Fixing in Progress","Reopened"))
+    # Check both status and label for safety (NNG uses label; future workflow may use status)
+    rework_count    = sum(1 for i in issues if i["status"] in ("Fixing in Progress","Reopened") or "Reopened" in (i.get("labels") or []))
     unassigned_count= sum(1 for i in open_issues if i["assignee"] == "Unassigned")
     stale_count     = sum(1 for i in open_issues if i.get("days_since_progress",0) > 7)
     blocker_count   = sum(1 for i in issues for l in i.get("links",[]) if "block" in l.get("type","").lower() and l["direction"]=="outward")
@@ -407,17 +409,46 @@ def build_fmea(issues):
         return 10
 
     # ── FMEA entries (Severity fixed by domain knowledge, Detection = process maturity) ──
+    # ── Data-driven detection scores ─────────────────────────────────────────
+    # Detection = how easily each failure is caught BEFORE it causes impact
+    # Derived from: does the dashboard/process currently surface this? (1=always, 10=never)
+    # Recalibrates based on current data volume — more data = better detection
+    def _det(has_control, data_count, total_issues=total):
+        """
+        Detection score (1=always caught, 10=never caught).
+        Fully data-driven:
+        - Base detection from whether a dashboard control exists
+        - Adjusted by what % of issues the failure affects (higher prevalence = easier to detect)
+        - Adjusted by absolute data volume (more data = more reliable signal)
+        """
+        # Base: does a control exist in the dashboard?
+        base = 4 if has_control else 8
+        # Prevalence adjustment: if failure is widespread it's easier to spot
+        prevalence = data_count / max(1, total_issues)
+        prevalence_adj = -2 if prevalence > 0.3 else (-1 if prevalence > 0.1 else 0)
+        # Volume adjustment: < 5 data points = poor signal = harder to detect reliably
+        volume_adj = 2 if data_count < 5 else (1 if data_count < 15 else 0)
+        return max(1, min(10, base + prevalence_adj + volume_adj))
+
+    # Data-driven severity: scales with actual business impact seen in data
+    # Severity 1-10: higher = worse effect on delivery
+    def _sev(base_sev, actual_count, total, escalation_threshold=0.15):
+        """Severity increases if failure is widespread (> threshold of total)."""
+        if total > 0 and actual_count / total > escalation_threshold:
+            return min(10, base_sev + 1)
+        return base_sev
+
     fmea = [
         {
             "id": "FM-01",
             "process_step":    "Due Date Management",
             "failure_mode":    "Issue closed after due date",
             "effect":          "Client SLA breach, delivery credibility loss",
-            "severity":        9,
+            "severity":        _sev(9, overdue_count, n_open),
             "cause":           "Unrealistic estimates, scope creep, untracked dependencies",
             "occurrence":      _occ(overdue_count, n_open),
             "current_control": "Due-flag in dashboard, ETA log",
-            "detection":       4,
+            "detection":       _det(True, overdue_count),
             "count":           overdue_count,
             "recommended_action": "Enforce mandatory due-date review in sprint planning; auto-alert at T-3 days",
         },
@@ -426,11 +457,11 @@ def build_fmea(issues):
             "process_step":    "Quality Gate",
             "failure_mode":    "Issue reopened / rework required post-QA",
             "effect":          "Double cycle time, team morale, velocity drop",
-            "severity":        8,
+            "severity":        _sev(8, rework_count, total),
             "cause":           "Insufficient acceptance criteria, QA scope gaps",
             "occurrence":      _occ(rework_count, total),
             "current_control": "QA Testing stage in workflow",
-            "detection":       5,
+            "detection":       _det(True, rework_count),
             "count":           rework_count,
             "recommended_action": "Implement Definition of Done checklist; block QA → Closed without sign-off",
         },
@@ -439,11 +470,11 @@ def build_fmea(issues):
             "process_step":    "Work Assignment",
             "failure_mode":    "Issue unassigned and open",
             "effect":          "Work item invisible, delivery gap, no accountability",
-            "severity":        7,
+            "severity":        _sev(7, unassigned_count, n_open),
             "cause":           "Sprint planning misses, assignee offboarded",
             "occurrence":      _occ(unassigned_count, n_open),
             "current_control": "Unassigned alert in dashboard",
-            "detection":       3,
+            "detection":       _det(True, unassigned_count),
             "count":           unassigned_count,
             "recommended_action": "Auto-assign rule based on capacity score; alert PM if unassigned > 24h",
         },
@@ -452,11 +483,11 @@ def build_fmea(issues):
             "process_step":    "Progress Tracking",
             "failure_mode":    "Issue stale > 7 days with no update",
             "effect":          "Hidden blockers, velocity undercount, false sprint progress",
-            "severity":        7,
+            "severity":        _sev(7, stale_count, n_open),
             "cause":           "No standup discipline, missing updates in Jira",
             "occurrence":      _occ(stale_count, n_open),
             "current_control": "Staleness metric in dashboard",
-            "detection":       4,
+            "detection":       _det(True, stale_count),
             "count":           stale_count,
             "recommended_action": "Mandatory daily Jira update via Delivery Coordination Log; auto-escalate to PM after 5d",
         },
@@ -465,11 +496,11 @@ def build_fmea(issues):
             "process_step":    "Dependency Management",
             "failure_mode":    "Active blocking relationship unresolved",
             "effect":          "Cascade delay across multiple issues, sprint failure",
-            "severity":        9,
+            "severity":        _sev(9, blocker_count, total),
             "cause":           "Cross-team dependencies not surfaced early, no blocker SLA",
             "occurrence":      _occ(blocker_count, total),
             "current_control": "Dependency graph, block links in Jira",
-            "detection":       5,
+            "detection":       _det(True, blocker_count),
             "count":           blocker_count,
             "recommended_action": "Daily blocker triage in standup; 48h escalation rule for unresolved blocks",
         },
@@ -478,11 +509,11 @@ def build_fmea(issues):
             "process_step":    "Sprint Planning",
             "failure_mode":    "Issue has no due date set",
             "effect":          "No delivery commitment, invisible in risk tracking",
-            "severity":        6,
+            "severity":        _sev(6, no_due_count, n_open),
             "cause":           "Incomplete sprint ceremonies, PM oversight",
             "occurrence":      _occ(no_due_count, n_open),
             "current_control": "No Due Date flag in dashboard",
-            "detection":       3,
+            "detection":       _det(True, no_due_count),
             "count":           no_due_count,
             "recommended_action": "Jira workflow: block transition to Dev In Progress without due date",
         },
@@ -491,11 +522,11 @@ def build_fmea(issues):
             "process_step":    "Bug Management",
             "failure_mode":    "High/Highest priority bug open > SLA",
             "effect":          "Production defect escapes, client escalation",
-            "severity":        10,
+            "severity":        _sev(10, high_bugs, total, escalation_threshold=0.05),
             "cause":           "Insufficient bug triage, resource allocation to features over bugs",
             "occurrence":      _occ(high_bugs, total),
             "current_control": "High Bugs alert in dashboard",
-            "detection":       4,
+            "detection":       _det(True, high_bugs),
             "count":           high_bugs,
             "recommended_action": "P0/P1 bug → immediate assignment + 4h response SLA; CEO/sponsor alert at 24h",
         },
@@ -504,11 +535,11 @@ def build_fmea(issues):
             "process_step":    "Delivery Forecasting",
             "failure_mode":    "Issue closed but SLA target breached",
             "effect":          "Process sigma degradation, client trust erosion",
-            "severity":        7,
+            "severity":        _sev(7, sla_breach_count, max(1, len(closed_issues))),
             "cause":           "Poor capacity planning, late-stage scope changes",
             "occurrence":      _occ(sla_breach_count, max(1, len(closed_issues))),
             "current_control": "Cpk / cycle time analytics in Six Sigma module",
-            "detection":       5,
+            "detection":       _det(True, sla_breach_count),
             "count":           sla_breach_count,
             "recommended_action": "Introduce cycle time commitment per sprint; visualize SLA compliance trend",
         },
@@ -529,147 +560,93 @@ def build_fmea(issues):
 # ──────────────────────────────────────────────────────────────────────────────
 # 5. ROLLED THROUGHPUT YIELD (RTY)
 # ──────────────────────────────────────────────────────────────────────────────
-def rolled_throughput_yield(issues):
+def rolled_throughput_yield(issues, changelog_data=None):
     """
     RTY = product of first-pass yield across each workflow stage.
-    Defect at a stage = issue that entered and was sent back / required rework.
-    Approximated from status transitions visible in Jira data.
+
+    Two modes:
+    1. changelog_data provided: Real RTY from actual Jira status transitions (backward moves = defects).
+    2. No changelog: Approximation — Fixing in Progress / Reopened distributed by workflow position.
+
+    Stages per Solytics JIRA Workflow doc (correct order including UAT and Rejected).
     """
-    stages = [
+    WORKFLOW_STAGES = [
         "Groomed", "To Do", "Development In Progress",
-        "Code Review", "Integration Testing",
-        "Ready For QA Testing", "QA Testing", "Closed"
+        "Fixing in Progress", "Code Review", "Integration Testing",
+        "Ready For QA Testing", "QA Testing", "UAT", "Closed"
     ]
     total = len(issues)
     if total == 0:
-        return {"rty": 0, "stages": []}
+        return {"rty": 0, "stages": [], "mode": "no_data"}
 
     stage_counts = Counter(i["status"] for i in issues)
-    rework = sum(1 for i in issues if i["status"] in ("Fixing in Progress","Reopened"))
-
     stage_results = []
     rty = 1.0
+    mode = "approximation"
 
-    for stage in stages:
-        in_stage = stage_counts.get(stage, 0)
-        # Defects at this stage: approximate as rework proportional to stage volume
-        defects_at_stage = round(rework * (in_stage / max(1, total)))
-        fy = 1 - (defects_at_stage / max(1, in_stage)) if in_stage > 0 else 1.0
-        fy = max(0.0, min(1.0, fy))
-        rty *= fy
-        stage_results.append({
-            "stage":    stage,
-            "count":    in_stage,
-            "defects":  defects_at_stage,
-            "fy":       round(fy * 100, 1),
-        })
+    if changelog_data:
+        mode = "changelog"
+        stage_idx = {s: i for i, s in enumerate(WORKFLOW_STAGES)}
+        stage_bounces = Counter()
+        stage_entries = Counter()
+        for issue_key, transitions in changelog_data.items():
+            for t in transitions:
+                to_s, from_s = t.get("to",""), t.get("from","")
+                if to_s in stage_idx: stage_entries[to_s] += 1
+                if (from_s in stage_idx and to_s in stage_idx and
+                        stage_idx[to_s] < stage_idx[from_s]):
+                    stage_bounces[from_s] += 1
+        for stage in WORKFLOW_STAGES:
+            entries = max(stage_entries.get(stage, 0), stage_counts.get(stage, 0))
+            bounces = stage_bounces.get(stage, 0)
+            fy = max(0.0, min(1.0, 1 - bounces / max(1, entries))) if entries > 0 else 1.0
+            rty *= fy
+            stage_results.append({"stage": stage, "count": entries, "defects": bounces, "fy": round(fy*100, 1)})
+    else:
+        # Approximation: distribute Fixing in Progress / Reopened by workflow position probability
+        fixing   = sum(1 for i in issues if i["status"] == "Fixing in Progress")
+        # Check both status and label for safety
+        reopened = sum(1 for i in issues if i["status"] == "Reopened" or "Reopened" in (i.get("labels") or []))
+        # Derive weights empirically from stage volumes in current data
+        # rather than using assumed 50/30/20 split
+        bounce_stages = ["Code Review", "QA Testing", "Integration Testing"]
+        stage_volumes = {s: max(1, stage_counts.get(s, 0)) for s in bounce_stages}
+        total_vol = sum(stage_volumes.values())
 
-    return {
-        "rty":    round(rty * 100, 2),
-        "stages": stage_results,
-    }
+        stage_rework = {}
+        for s in bounce_stages:
+            w = stage_volumes[s] / total_vol
+            # Reopened issues weight more toward QA (most common post-QA bounce)
+            if s == "QA Testing":
+                stage_rework[s] = round(fixing * w + reopened * 0.6)
+            elif s == "Integration Testing":
+                stage_rework[s] = round(fixing * w + reopened * 0.4)
+            else:
+                stage_rework[s] = round(fixing * w)
 
+        for stage in WORKFLOW_STAGES:
+            in_stage = stage_counts.get(stage, 0)
+            defects  = stage_rework.get(stage, 0)
+            fy = max(0.0, min(1.0, 1 - defects / max(1, in_stage + defects)))
+            rty *= fy
+            stage_results.append({"stage": stage, "count": in_stage, "defects": defects, "fy": round(fy*100, 1)})
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 6. MEASUREMENT SYSTEM ANALYSIS (MSA) — consistency audit
-# ──────────────────────────────────────────────────────────────────────────────
-def msa_audit(issues):
-    """
-    Proxy MSA: checks for measurement system inconsistencies in Jira data.
-    A BB-level MSA would need repeated measurements; we audit data quality.
-    Returns list of measurement issues with severity.
-    """
-    findings = []
-    total = len(issues)
-
-    # 1. Missing due dates on non-closed issues
-    missing_due = [i for i in issues if not i.get("due") and i["status"] not in ("Closed","Rejected")]
-    if missing_due:
-        pct = round(len(missing_due)/max(1,total)*100,1)
-        findings.append({
-            "finding":   "Missing Due Date",
-            "count":     len(missing_due),
-            "pct":       pct,
-            "severity":  "High" if pct > 30 else "Medium",
-            "impact":    "DPMO, Cpk, and ETA tracking are unreliable without due dates",
-            "action":    "Enforce due date as mandatory field before Dev In Progress transition",
-        })
-
-    # 2. Stale updated-at (issues not updated in > 30 days, still open)
-    stale_30 = [i for i in issues if i.get("days_since_progress",0) > 30 and i["status"] not in ("Closed","Rejected")]
-    if stale_30:
-        pct = round(len(stale_30)/max(1,total)*100,1)
-        findings.append({
-            "finding":   "Data Staleness > 30 Days",
-            "count":     len(stale_30),
-            "pct":       pct,
-            "severity":  "High" if pct > 20 else "Medium",
-            "impact":    "Cycle time and staleness metrics are inflated; control charts skewed",
-            "action":    "Daily update mandate; auto-close stale issues after 45 days with PM review",
-        })
-
-    # 3. Unassigned issues (measurement gap — no accountable owner)
-    unassigned = [i for i in issues if i.get("assignee","") == "Unassigned" and i["status"] != "Closed"]
-    if unassigned:
-        pct = round(len(unassigned)/max(1,total)*100,1)
-        findings.append({
-            "finding":   "Unassigned Open Issues",
-            "count":     len(unassigned),
-            "pct":       pct,
-            "severity":  "Medium",
-            "impact":    "ERI (Execution Reliability Index) and assignee Cpk calculations are incomplete",
-            "action":    "Auto-assign using capacity scoring; block sprint start if unassigned > 0",
-        })
-
-    # 4. Cycle time outliers (issues open > 3× SLA — data integrity suspect)
-    ct_outliers = []
-    for i in issues:
-        if i["status"] == "Closed":
-            ct = _cycle_time(i)
-            sla = _sla(i.get("type","Task"))
-            if ct is not None and ct > sla * 3:
-                ct_outliers.append(i)
-    if ct_outliers:
-        findings.append({
-            "finding":   "Extreme Cycle Time Outliers (>3× SLA)",
-            "count":     len(ct_outliers),
-            "pct":       round(len(ct_outliers)/max(1,total)*100,1),
-            "severity":  "Medium",
-            "impact":    "Cpk standard deviation inflated; sigma level understated",
-            "action":    "Investigate each outlier — likely mis-categorised or created date incorrect",
-            "examples":  [i["key"] for i in ct_outliers[:5]],
-        })
-
-    # 5. Duplicate-like issues (same summary, different key)
-    summary_map = defaultdict(list)
-    for i in issues:
-        summary_map[i.get("summary","")[:50]].append(i["key"])
-    dupes = {k: v for k, v in summary_map.items() if len(v) > 1}
-    if dupes:
-        findings.append({
-            "finding":   "Potential Duplicate Issues",
-            "count":     sum(len(v) for v in dupes.values()),
-            "pct":       round(sum(len(v) for v in dupes.values())/max(1,total)*100,1),
-            "severity":  "Low",
-            "impact":    "DPMO over-counted; defect rate inflated",
-            "action":    "Run duplicate detection; close confirmed dupes with 'Duplicate' link",
-        })
-
-    return findings
+    return {"rty": round(rty*100, 2), "stages": stage_results, "mode": mode}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 7. DMAIC HEALTH SUMMARY
 # ──────────────────────────────────────────────────────────────────────────────
-def dmaic_summary(issues):
+def dmaic_summary(issues, changelog_data=None):
     """
     Single function that returns a complete DMAIC health object.
+    Pass changelog_data from D.get_changelog() for real RTY.
     Used to drive the Six Sigma Command Centre panel.
     """
     overall = overall_dpmo(issues)
     cap = process_capability(issues)
     fmea = build_fmea(issues)
-    rty = rolled_throughput_yield(issues)
+    rty = rolled_throughput_yield(issues, changelog_data=changelog_data)
     msa = msa_audit(issues)
 
     # Top 3 FMEA risks

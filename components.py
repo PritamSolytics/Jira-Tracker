@@ -24,6 +24,9 @@ STATUS_CLR = {
     "To Do":(MUTED,"#F1F5F9"), "Rejected":(RED,"#FEF2F2"),
     "Reopened":(ORANGE,"#FFF7ED"), "UAT":(PURPLE,"#F5F3FF"),
     "On-Hold":(SLATE,"#F8FAFC"), "Info-Needed":(AMBER,"#FFFBEB"),
+    "In Progress":(ACCENT,"#EEF4FF"),        # QA-Subtask workflow
+    "UAT":(PURPLE,"#F5F3FF"),                  # Post-QA user acceptance stage
+    "Ready For Deployment UAT":(PURPLE,"#F5F3FF"),  # Seen in linked issues (MV project)
 }
 TYPE_CLR={"Task":ACCENT,"Story":PURPLE,"Bug":RED,"Sub-task":AMBER,"Epic":TEAL,"QA-Sub-task":TEAL}
 PRIO_CLR={"Highest":RED,"High":ORANGE,"Medium":AMBER,"Low":GREEN,"Lowest":TEAL}

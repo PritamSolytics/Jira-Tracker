@@ -19,11 +19,18 @@ DAYS_BACK  = int(os.getenv("DAYS_BACK", "60"))
 BASIC   = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
 HEADERS = {"Authorization": f"Basic {BASIC}", "Accept": "application/json", "Content-Type": "application/json"}
 FIELDS  = ["summary","issuetype","status","assignee","priority","labels",
-           "created","updated","duedate","comment","issuelinks","parent","fixVersions"]
+           "created","updated","duedate","comment","issuelinks","parent","fixVersions",
+           "story_points","customfield_10016","customfield_10020",  # story points, sprint
+           "customfield_10050",  # QA Tester
+           "timespent","timeoriginalestimate","aggregatetimespent"]
 URL     = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3/search/jql"
 
 _cache = {"data": [], "ts": 0}
 TTL    = 600
+
+# ── Changelog cache (RTY) — 24h TTL, fetched in background ───────────────────
+_changelog_cache = {"data": {}, "ts": 0}
+TTL_CHANGELOG    = 86_400  # 24 hours
 
 def _fetch_all():
     projects_jql = ",".join(PROJECTS)
@@ -46,6 +53,42 @@ def _fetch_all():
         if res.get("isLast", True) or not batch: break
     return issues[:MAX_ISSUES]
 
+
+# Sprint field IDs vary per Jira instance — try all known ones
+# Confirmed from live NNG Jira: sprint is customfield_10020, returns list of dicts with "name"
+_SPRINT_FIELDS = ["customfield_10020", "customfield_10021", "customfield_10014", "sprint"]
+
+def _extract_sprint(f):
+    """
+    Extract sprint name from Jira sprint custom field.
+    Tries multiple known field IDs — correct one auto-detected at runtime.
+    """
+    import re
+    for field_id in _SPRINT_FIELDS:
+        sprints = f.get(field_id)
+        if not sprints:
+            continue
+        if isinstance(sprints, list) and sprints:
+            s = sprints[-1]
+            if isinstance(s, dict): return s.get("name", "")
+            if isinstance(s, str):
+                m = re.search(r"name=([^,\]]+)", s)
+                return m.group(1).strip() if m else s[:40]
+        if isinstance(sprints, str):
+            return sprints[:40]
+    return ""
+
+def _workflow_type(issue_type):
+    """Map issue type to workflow type per Solytics JIRA Workflow doc."""
+    return {
+        "Story":       "story_task",
+        "Task":        "story_task",
+        "Bug":         "bug",
+        "Sub-task":    "subtask",
+        "QA-Sub-task": "qa_subtask",
+        "Epic":        "epic",
+    }.get(issue_type, "story_task")
+
 def _parse(raw):
     f = raw["fields"]
     assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
@@ -59,7 +102,7 @@ def _parse(raw):
         dd = date.fromisoformat(due)
         st = f.get("status", {}).get("name", "")
         if st == "Closed":         due_flag = "Closed"
-        elif dd < today:           due_flag = f"Beyond Target Date ({(today-dd).days}d)"
+        elif dd < today:           due_flag = f"Past Due Date ({(today-dd).days}d)"
         elif (dd-today).days <= 7: due_flag = "Due This Week"
         else:                      due_flag = "On Track"
     else:
@@ -97,8 +140,7 @@ def _parse(raw):
         "updated":        updated,
         "due":            due,
         "due_flag":       due_flag,
-        "days_stale":          days_stale,
-        "days_since_progress": days_stale,   # canonical alias — used across all pages
+        "days_stale":     days_stale,
         "comments_count": len(comments),
         "latest_comment": latest_comment,
         "links":          links,
@@ -106,7 +148,17 @@ def _parse(raw):
         "fix_version":    ", ".join(v.get("name","") for v in (f.get("fixVersions") or [])),
         "parent":         (f.get("parent") or {}).get("key", ""),
         "url":            f"{BASE_URL}/browse/{raw['key']}",
-        "story_points":   None,
+        # ── Workflow-specific fields (per Solytics JIRA Workflow doc) ──────────
+        "story_points":    (f.get("customfield_10016") or f.get("story_points")),
+        "sprint":          _extract_sprint(f),
+        "qa_tester":       (f.get("customfield_10050") or {}).get("displayName", ""),
+        "time_spent_sec":  f.get("timespent") or 0,
+        "time_est_sec":    f.get("timeoriginalestimate") or 0,
+        "time_logged":     bool(f.get("timespent")),   # True if any time has been logged
+        "has_story_points":bool(f.get("customfield_10016") not in (None, 0) or f.get("story_points") not in (None, 0)),
+        "rca":             "",   # populated from comments if RCA keyword found
+        "workflow_type":   _workflow_type(f.get("issuetype",{}).get("name","")),
+        "transition_valid":True,  # placeholder — enforced at Jira level
     }
 
 def get_issues(force=False):
@@ -131,6 +183,66 @@ def get_projects(issues):  return sorted(set(i["project"]  for i in issues))
 def last_sync():
     if _cache["ts"]: return datetime.fromtimestamp(_cache["ts"], tz=IST).strftime("%d %b %Y %H:%M IST")
     return "Never"
+
+def get_changelog(force=False):
+    """
+    Fetch Jira status transition history for all open issues.
+    Used for real RTY calculation in six_sigma_engine.
+    Cached for 24 hours — heavy call (1 request per issue).
+    Returns: {issue_key: [{"from": str, "to": str, "date": str}]}
+    """
+    now = time.time()
+    if not force and now - _changelog_cache["ts"] < TTL_CHANGELOG and _changelog_cache["data"]:
+        log.info("Changelog: serving from cache")
+        return _changelog_cache["data"]
+
+    issues = get_issues()
+    if not issues:
+        return {}
+
+    # Only fetch open issues — closed issues don't add new bounces
+    targets = [i for i in issues if i["status"] not in ("Closed", "Rejected")]
+    log.info(f"Fetching changelog for {len(targets)} open issues...")
+
+    changelog_data = {}
+    api_base = f"https://api.atlassian.com/ex/jira/{CLOUD_ID}/rest/api/3"
+
+    for issue in targets:
+        try:
+            r = requests.get(
+                f"{api_base}/issue/{issue['key']}",
+                params={"expand": "changelog", "fields": "status"},
+                headers=HEADERS,
+                timeout=10,
+            )
+            if r.status_code != 200:
+                continue
+            transitions = []
+            for hist in r.json().get("changelog", {}).get("histories", []):
+                for item in hist.get("items", []):
+                    if item.get("field") == "status":
+                        transitions.append({
+                            "from": item.get("fromString", ""),
+                            "to":   item.get("toString",   ""),
+                            "date": hist.get("created",    "")[:10],
+                        })
+            if transitions:
+                changelog_data[issue["key"]] = transitions
+        except Exception as e:
+            log.warning(f"Changelog fetch failed for {issue['key']}: {e}")
+            continue
+
+    _changelog_cache["data"] = changelog_data
+    _changelog_cache["ts"]   = now
+    log.info(f"Changelog cached: {len(changelog_data)} issues with transitions")
+    return changelog_data
+
+
+def get_changelog_last_sync():
+    if _changelog_cache["ts"]:
+        return datetime.fromtimestamp(_changelog_cache["ts"], tz=IST).strftime("%d %b %Y %H:%M IST")
+    return "Never"
+
 
 def post_jira_comment(issue_key, text):
     """Post a structured standup comment to Jira."""

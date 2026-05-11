@@ -115,17 +115,29 @@ def engineer_features(issues):
             "updated":                updated,
             "due":                    due,
             "fix_version":            i.get("fix_version", "") or "",
-            "days_open":              i.get("days_since_progress", 0),
+            # days_open = actual age of issue from creation; days_since_progress = staleness
+            "days_open":              (date.today() - date.fromisoformat(i["created"])).days if i.get("created") else 0,
             "cycle_time":             cycle_time,
             "has_due":                1 if due else 0,
             "priority_score":         {"Highest":4,"High":3,"Medium":2,"Low":1,"Lowest":0}.get(priority, 2),
-            "type_risk":              {"Bug":3,"Story":2,"Task":1,"Sub-task":1,"QA-Sub-task":0,"Epic":0}.get(itype, 1),
+            # type_risk per workflow complexity (Solytics JIRA Workflow doc)
+            # Bug=4: mandatory RCA, QA Tester, 8-stage workflow
+            # Story/Task=2: 6-stage with sprint+SP+fixversion gates
+            # Sub-task=1: 4-stage, assignee only gate
+            # QA-Sub-task=1: 3-stage, simpler than Bug
+            # Epic=0: no direct workflow gates
+            "type_risk":              {"Bug":4,"Story":2,"Task":2,"Sub-task":1,"QA-Sub-task":1,"Epic":0}.get(itype, 1),
             "is_unassigned":          1 if i.get("assignee","") == "Unassigned" else 0,
             "label_count":            len(labels),
             "link_count":             len(links),
             "blocker_count":          blocker_count.get(i.get("key",""), 0),
             "blocked_count":          blocked_count.get(i.get("key",""), 0),
             "comment_count":          i.get("comments_count", 0),
+            # Workflow compliance features (per Solytics JIRA Workflow doc)
+            "has_story_points":       1 if i.get("has_story_points") else 0,
+            "has_sprint":             1 if i.get("sprint") else 0,
+            "time_logged":            1 if i.get("time_logged") else 0,
+            "has_qa_tester":          1 if i.get("qa_tester") else 0,
             "degree_centrality":      round(deg.get(i.get("key",""), 0.0), 4),
             "betweenness_centrality": round(bet.get(i.get("key",""), 0.0), 4),
             "allocation_density":          allocation_density.get(i.get("assignee","Unassigned"), 0),

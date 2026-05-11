@@ -1,5 +1,7 @@
+import os
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, dash_table
+from flask import request, Response
 import dash_cytoscape as cyto
 import plotly.graph_objects as go
 from collections import Counter, defaultdict
@@ -46,7 +48,33 @@ app = dash.Dash(__name__, suppress_callback_exceptions=True,
                 meta_tags=[{"name":"viewport","content":"width=device-width,initial-scale=1"}])
 app.title = "Delivery Intelligence Platform"
 server = app.server
+
+# ── Basic Auth ────────────────────────────────────────────────────────────────
+DASH_USER = os.getenv("DASH_USER", "solytics")
+DASH_PASS = os.getenv("DASH_PASS", "deliver2025")
+
+def check_auth(username, password):
+    return username == DASH_USER and password == DASH_PASS
+
+def authenticate():
+    return Response(
+        "Authentication required.", 401,
+        {"WWW-Authenticate": 'Basic realm="Delivery Intelligence Platform"'}
+    )
+
+@server.before_request
+def require_auth():
+    # Allow Dash internal routes through — they carry no user data
+    if request.path.startswith("/_dash-") or request.path.startswith("/assets"):
+        return None
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return authenticate()
+    return None
+
 threading.Thread(target=D.get_issues, daemon=True).start()
+# Pre-fetch changelog in background on startup (24h cache — real RTY data)
+threading.Thread(target=D.get_changelog, daemon=True).start()
 
 # ── Health score calculator ────────────────────────────────────
 def calc_health(issues):
@@ -262,7 +290,7 @@ def page_command(issues, all_issues):
             *[html.Div([
                 html.A(i["key"],href=i["url"],target="_blank",style={"color":C.ACCENT,"fontSize":"0.68rem","fontWeight":"700","textDecoration":"none","marginRight":"6px","fontFamily":"JetBrains Mono,monospace"}),
                 C.status_badge(i["status"]),
-                html.Span(i["due"],style={"color":C.RED if i["due_flag"].startswith("Past") else C.AMBER,"fontSize":"0.66rem","marginLeft":"6px"}),
+                html.Span(i["due"],style={"color":C.RED if "Beyond Target Date" in i["due_flag"] else C.AMBER,"fontSize":"0.66rem","marginLeft":"6px"}),
             ],style={"marginBottom":"4px"}) for i in sorted(items,key=lambda x:x["due"])[:3]],
         ],style={"padding":"8px 0","borderBottom":f"1px solid {C.BORDER}"})
         for a,items in sorted(by_assignee_due.items(),key=lambda x:-len(x[1]))[:8]
@@ -461,7 +489,7 @@ def page_deps(issues,_):
     ])
 
 def page_workflow(issues,_):
-    ORDER=["Groomed","To Do","Development In Progress","Code Review","Integration Testing","Fixing in Progress","Ready For QA Testing","QA Testing","Closed"]
+    ORDER=["Groomed","To Do","Development In Progress","Fixing in Progress","Code Review","Integration Testing","Ready For QA Testing","QA Testing","UAT","Closed","Rejected"]
     c=Counter(i["status"] for i in issues)
     avg_stale=defaultdict(list)
     for i in issues: avg_stale[i["status"]].append(i["days_since_progress"])
@@ -508,6 +536,45 @@ def page_alerts(issues,_):
                 ],style={"background":C.SURFACE if ri%2==0 else C.BG}) for ri,r in enumerate(rows)])],
                 style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem"}),
             style={"marginBottom":"12px"})
+    # ── Workflow Compliance Checks (per Solytics JIRA Workflow doc) ──────────────
+    # Story/Task: To Do→Dev requires assignee, due date, story points, fix version, sprint
+    # story_points (customfield_10016) IS used on Truist tickets — re-enabled
+    missing_sp = [i for i in issues if i["type"] in ("Story","Task")
+                  and i["status"] not in ("Closed","Rejected","Groomed")
+                  and not i.get("has_story_points")]
+    missing_sprint=[i for i in issues if i["type"] in ("Story","Task","Bug","Sub-task","QA-Sub-task")
+                    and i["status"] not in ("Closed","Rejected","Groomed")
+                    and not i.get("sprint")]
+    # Time log required at: QA Testing→Closed AND QA Testing→UAT (per workflow doc)
+    missing_time = [i for i in issues
+                    if i["status"] in ("Closed", "UAT", "Ready For Deployment UAT")
+                    and i["type"] not in ("Epic",)
+                    and not i.get("time_logged")]
+    # NNG project: customfield_10050 (QA Tester) exists but not consistently used — skip check
+    missing_qa_tester = []
+    # RCA check: Bugs in/past QA Testing must have RCA in comments (per workflow doc)
+    RCA_KEYWORDS = ("rca", "root cause", "root-cause", "cause:", "analysis:")
+    missing_rca = [i for i in issues
+                   if i["type"] == "Bug"
+                   and i["status"] in ("QA Testing","UAT","Ready For QA Testing",
+                                       "Ready For Deployment UAT","Closed")
+                   and not any(k in (i.get("latest_comment","") or "").lower()
+                               for k in RCA_KEYWORDS)]
+    for i in missing_rca: i["_detail"] = "Bug in/past QA with no RCA in latest comment"
+
+    for i in missing_sp:      i["_detail"] = "No Story Points"
+    for i in missing_sprint:  i["_detail"] = "No Sprint assigned"
+    for i in missing_time:    i["_detail"] = "Closed without time log"
+    for i in missing_qa_tester: i["_detail"] = "No QA Tester assigned"
+
+    # Groomed→Rejected is valid ONLY for Bugs per workflow doc
+    # For all other types it indicates incorrect rejection — flag as alert
+    invalid_rejected = [i for i in issues
+                        if i["status"] == "Rejected"
+                        and i["type"] not in ("Bug",)
+                        and i.get("priority") not in ("Lowest","Low")]
+    for i in invalid_rejected: i["_detail"] = f"Rejected ({i['type']}) — only valid for Bugs per workflow"
+
     beyond_target_date=[i for i in issues if "Beyond Target Date" in i["due_flag"] and i["status"]!="Closed"]
     no_act=[i for i in issues if i["days_since_progress"]>7 and i["status"] not in ("Closed","Rejected")]
     unassigned=[i for i in issues if i["assignee"]=="Unassigned" and i["status"]!="Closed"]
@@ -516,11 +583,30 @@ def page_alerts(issues,_):
     for i in no_act: i["_detail"]=f"No update {i['days_since_progress']}d"
     for i in crit_bugs: i["_detail"]=f"{i['priority']} Bug"
     return html.Div([
-        html.Div([C.kpi("Beyond Target Date",len(beyond_target_date),C.RED),C.kpi("No Activity >7d",len(no_act),C.ORANGE),
-                  C.kpi("Unassigned",len(unassigned),C.MUTED),C.kpi("High Bugs",len(crit_bugs),"#DC2626")],
-                 style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"20px"}),
-        _tbl("Beyond Target Date Date",beyond_target_date,C.RED),_tbl("No Activity >7 Days",no_act,C.ORANGE),
-        _tbl("Unassigned",unassigned,C.MUTED),_tbl("High/Highest Bugs",crit_bugs,"#DC2626"),
+        html.Div([
+            C.kpi("Beyond Target Date",len(beyond_target_date),C.RED),
+            C.kpi("No Activity >7d",len(no_act),C.ORANGE),
+            C.kpi("Unassigned",len(unassigned),C.MUTED),
+            C.kpi("High Bugs",len(crit_bugs),"#DC2626"),
+            C.kpi("Missing Story Points",len(missing_sp),C.PURPLE),
+            C.kpi("Missing Sprint",len(missing_sprint),C.AMBER),
+            C.kpi("No Time Logged",len(missing_time),C.MUTED),
+            C.kpi("Missing QA Tester",len(missing_qa_tester),C.RED),
+            C.kpi("Invalid Rejected",len(invalid_rejected),C.ORANGE),
+            C.kpi("Missing RCA (Bugs)",len(missing_rca),C.RED),
+        ], style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"20px"}),
+        C.section("Delivery Alerts","Issues breaching SLA or process thresholds"),
+        _tbl("Beyond Target Date",beyond_target_date,C.RED),
+        _tbl("No Activity >7 Days",no_act,C.ORANGE),
+        _tbl("Unassigned",unassigned,C.MUTED),
+        _tbl("High/Highest Bugs",crit_bugs,"#DC2626"),
+        C.section("Workflow Compliance Violations","Per Solytics JIRA Workflow — mandatory field checks"),
+        _tbl("Missing Story Points (Story/Task in Dev)",missing_sp,C.PURPLE),
+        _tbl("Missing Sprint Assignment",missing_sprint,C.AMBER),
+        _tbl("Closed Without Time Log",missing_time,C.MUTED),
+        _tbl("Bug in QA Without QA Tester",missing_qa_tester,C.RED),
+        _tbl("Invalid Rejection (Non-Bug Rejected)",invalid_rejected,C.ORANGE),
+        _tbl("Bugs Missing RCA in QA/UAT/Closed",missing_rca,C.RED),
     ])
 
 def page_settings(issues,_):

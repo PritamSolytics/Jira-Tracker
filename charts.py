@@ -101,7 +101,7 @@ def velocity_line(issues):
     return fig
 
 def workflow_funnel(issues):
-    ORDER = ["Groomed","To Do","Development In Progress","Code Review","Integration Testing","Fixing in Progress","Ready For QA Testing","QA Testing","Closed"]
+    ORDER = ["Groomed","To Do","Development In Progress","Fixing in Progress","Code Review","Integration Testing","Ready For QA Testing","QA Testing","UAT","Closed","Rejected"]
     c = Counter(i["status"] for i in issues)
     vals = [c.get(s,0) for s in ORDER]
     colors = [sc_bg(s) for s in ORDER]

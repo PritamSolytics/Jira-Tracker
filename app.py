@@ -57,8 +57,7 @@ RETRAIN_INTERVAL_H = int(os.getenv("RETRAIN_INTERVAL_H", "24"))
 
 def _auto_retrain_loop():
     import time as _time
-    # Wait 5 minutes after startup before first train — let Jira data load first
-    _time.sleep(300)
+    _time.sleep(300)  # wait 5 min after startup so Jira data loads first
     while True:
         if not _retrain_state["running"]:
             _retrain_state["running"] = True
@@ -67,7 +66,7 @@ def _auto_retrain_loop():
                 import mlops
                 issues = D.get_issues()
                 if issues:
-                    log.info(f"Auto-retrain starting — {len(issues)} issues")
+                    print(f"[Auto-retrain] Starting — {len(issues)} issues")
                     result = mlops.run_pipeline(issues=issues)
                     if "error" in result:
                         _retrain_state["status"] = f"Error: {result['error'][:80]}"
@@ -81,19 +80,18 @@ def _auto_retrain_loop():
                             f"n={result.get('n_train','—')}"
                         )
                     _retrain_state["last_run"] = datetime.now(tz=D.IST).strftime("%d %b %Y %H:%M IST")
-                    log.info(f"Auto-retrain complete: {_retrain_state['status']}")
+                    print(f"[Auto-retrain] Complete: {_retrain_state['status']}")
                 else:
                     _retrain_state["status"] = "Skipped — no issues loaded yet"
             except Exception as e:
                 _retrain_state["status"] = f"Exception: {str(e)[:100]}"
-                log.error(f"Auto-retrain failed: {e}")
+                print(f"[Auto-retrain] Failed: {e}")
             finally:
                 _retrain_state["running"] = False
-        # Sleep until next cycle
         _time.sleep(RETRAIN_INTERVAL_H * 3600)
 
 threading.Thread(target=_auto_retrain_loop, daemon=True).start()
-log.info(f"Auto-retrain scheduler started — interval: {RETRAIN_INTERVAL_H}h")
+print(f"[Auto-retrain] Scheduler started — interval: {RETRAIN_INTERVAL_H}h")
 
 # ── Health score calculator ────────────────────────────────────
 def calc_health(issues):

@@ -13,11 +13,8 @@ import data_lab_page as DL_PAGE
 import analytics_page as AN_PAGE
 import task_linkage_page as TL_PAGE
 import six_sigma_page as SS_PAGE
-try:
-    import mlops as _MLOPS
-except Exception:
-    _MLOPS = None
 import people_page as PP_PAGE
+import resource_allocation_page as RA_PAGE
 
 
 def accordion(title, children, id_key, default_open=True):
@@ -51,30 +48,8 @@ app = dash.Dash(__name__, suppress_callback_exceptions=True,
                 meta_tags=[{"name":"viewport","content":"width=device-width,initial-scale=1"}])
 app.title = "Delivery Intelligence Platform"
 server = app.server
-
-# ── Basic Auth ────────────────────────────────────────────────────────────────
-import os as _os, functools
-DASH_USER = _os.getenv("DASH_USER","solytics")
-DASH_PASS = _os.getenv("DASH_PASS","deliver2025")
-
-def check_auth(u,p): return u==DASH_USER and p==DASH_PASS
-
-def authenticate():
-    return __import__("flask").Response("Auth required.",401,
-        {"WWW-Authenticate":'Basic realm="Delivery Intelligence"'})
-
-@server.before_request
-def require_auth():
-    from flask import request
-    if request.path.startswith("/_dash-") or request.path.startswith("/assets"): return None
-    auth = request.authorization
-    if not auth or not check_auth(auth.username, auth.password): return authenticate()
-
 threading.Thread(target=D.get_issues, daemon=True).start()
-def _delayed_changelog():
-    import time; time.sleep(30)
-    D.get_changelog()
-threading.Thread(target=_delayed_changelog, daemon=True).start()
+threading.Thread(target=D.get_changelog, daemon=True).start()
 
 # ── Health score calculator ────────────────────────────────────
 def calc_health(issues):
@@ -208,6 +183,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
     if path == "/task-linkage": return TL_PAGE.layout(f),  "Task Linkage Analysis"
     if path == "/six-sigma":    return SS_PAGE.layout(f),   "Six Sigma Black Belt"
     if path == "/people":       return PP_PAGE.layout(f),    "People — Ticket Drill-Down"
+    if path == "/resource-allocation": return RA_PAGE.layout(f), "Resource Allocation"
     pages={
         "/":            (page_command,      "Command Centre"),
         "/people":      (page_people,       "Capacity & Workstream Overview"),
@@ -566,8 +542,7 @@ def page_settings(issues,_):
                 ("Loaded",str(len(issues))),("Auto-refresh","Every 10 min"),
                 ("Store Backend","MongoDB" if os.getenv("MONGODB_URI") else "Local JSON (set MONGODB_URI for persistence)"),
                 ("Auth","Enabled" if os.getenv("DASH_USER") else "Default (set DASH_USER/DASH_PASS)"),
-                ("Groq Model",os.getenv("GROQ_MODEL","llama-3.3-70b-versatile")),
-                ("Manual Train",os.getenv("ENABLE_MANUAL_TRAIN","false"))]
+                ("Groq Model",os.getenv("GROQ_MODEL","llama-3.3-70b-versatile"))]
     return html.Div([
         C.section("Configuration","Platform settings, SLA targets, and environment"),
         C.grid(
@@ -644,6 +619,7 @@ AN_PAGE.register_callbacks(app, D.get_issues)
 TL_PAGE.register_callbacks(app, D.get_issues)
 SS_PAGE.register_callbacks(app, D.get_issues)
 PP_PAGE.register_callbacks(app, D.get_issues)
+RA_PAGE.register_callbacks(app, D.get_issues)
 
 if __name__=="__main__":
     app.run(debug=False,host="0.0.0.0",port=8050)

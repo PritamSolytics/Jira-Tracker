@@ -68,8 +68,8 @@ def layout(issues):
                 ], style={"flex":"1"}),
                 html.Div([
                     _metric("AUC (Test)",    meta.get("auc_test","—"),   C.ACCENT),
-                    _metric("AUC (5-CV)",    meta.get("auc_cv","—"),     C.PURPLE),
-                    _metric("Train n",       meta.get("n_train","—"),    C.TEAL),
+                    _metric("AUC (5-CV)",    meta.get("cv_auc_mean", meta.get("auc_cv","—")),     C.PURPLE),
+                    _metric("Train n",       meta.get("n_train", meta.get("train_n","—")),    C.TEAL),
                     _metric("Hist Slip %",   f"{meta.get('slip_rate','—')}%", C.RED),
                 ], style={"display":"flex","gap":"10px","flexWrap":"wrap"}),
             ], style={"display":"flex","gap":"20px","alignItems":"flex-start","flexWrap":"wrap"}),

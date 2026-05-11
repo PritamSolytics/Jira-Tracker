@@ -29,6 +29,15 @@ def layout(issues):
 
     # ── Statistical tests ──────────────────────────────────────────────────────
     tests = ML.run_statistical_tests(issues)
+    # If all tests failed (no local CSV), run on live issues directly
+    if not tests or all("error" in v for v in tests.values()):
+        try:
+            df = ML.engineer_features(issues)
+            import os; os.makedirs("data", exist_ok=True)
+            df.to_csv("data/jira_dataset.csv", index=False)
+            tests = ML.run_statistical_tests(issues)
+        except Exception:
+            pass
     tests_card = _build_tests_card(tests)
 
     # ── Survival analysis proxy ────────────────────────────────────────────────

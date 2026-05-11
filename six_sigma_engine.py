@@ -648,6 +648,75 @@ def rolled_throughput_yield(issues, changelog_data=None):
 # ──────────────────────────────────────────────────────────────────────────────
 # 7. DMAIC HEALTH SUMMARY
 # ──────────────────────────────────────────────────────────────────────────────
+# ── Measurement System Analysis (MSA) ────────────────────────────────────────
+def msa_audit(issues):
+    """
+    Proxy MSA: checks for measurement system inconsistencies in Jira data.
+    Returns list of measurement issues with severity.
+    """
+    findings = []
+    total = len(issues)
+
+    missing_due = [i for i in issues if not i.get("due") and i["status"] not in ("Closed","Rejected")]
+    if missing_due:
+        pct = round(len(missing_due)/max(1,total)*100,1)
+        findings.append({
+            "finding":   "Missing Due Date",
+            "count":     len(missing_due),
+            "pct":       pct,
+            "severity":  "High" if pct > 30 else "Medium",
+            "impact":    "DPMO, Cpk, and ETA tracking are unreliable without due dates",
+            "action":    "Enforce due date as mandatory field before Dev In Progress transition",
+        })
+
+    stale_30 = [i for i in issues if i.get("days_since_progress",0) > 30 and i["status"] not in ("Closed","Rejected")]
+    if stale_30:
+        pct = round(len(stale_30)/max(1,total)*100,1)
+        findings.append({
+            "finding":   "Data Staleness > 30 Days",
+            "count":     len(stale_30),
+            "pct":       pct,
+            "severity":  "High" if pct > 20 else "Medium",
+            "impact":    "Cycle time and staleness metrics are inflated; control charts skewed",
+            "action":    "Daily update mandate; auto-close stale issues after 45 days with PM review",
+        })
+
+    unassigned = [i for i in issues if i.get("assignee","") == "Unassigned" and i["status"] != "Closed"]
+    if unassigned:
+        pct = round(len(unassigned)/max(1,total)*100,1)
+        findings.append({
+            "finding":   "Unassigned Open Issues",
+            "count":     len(unassigned),
+            "pct":       pct,
+            "severity":  "Medium",
+            "impact":    "ERI and assignee Cpk calculations are incomplete",
+            "action":    "Auto-assign using capacity scoring; block sprint start if unassigned > 0",
+        })
+
+    ct_outliers = []
+    for i in issues:
+        if i["status"] == "Closed":
+            c = _safe_date(i.get("created",""))
+            u = _safe_date(i.get("updated",""))
+            if c and u:
+                ct = (u - c).days
+                sla = _sla(i.get("type","Task"))
+                if ct > sla * 3:
+                    ct_outliers.append(i)
+    if ct_outliers:
+        findings.append({
+            "finding":   "Extreme Cycle Time Outliers (>3x SLA)",
+            "count":     len(ct_outliers),
+            "pct":       round(len(ct_outliers)/max(1,total)*100,1),
+            "severity":  "Medium",
+            "impact":    "Cpk standard deviation inflated; sigma level understated",
+            "action":    "Investigate each outlier — likely mis-categorised or created date incorrect",
+            "examples":  [i["key"] for i in ct_outliers[:5]],
+        })
+
+    return findings
+
+
 def dmaic_summary(issues, changelog_data=None):
     """
     Single function that returns a complete DMAIC health object.

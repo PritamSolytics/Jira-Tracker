@@ -3,7 +3,7 @@ services:
     name: jira-dashboard
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:server -b 0.0.0.0:$PORT --workers 2 --timeout 120
+    startCommand: gunicorn app:server -b 0.0.0.0:$PORT --workers 1 --timeout 180
     envVars:
       - key: JIRA_BASE_URL
         value: https://solytics.atlassian.net

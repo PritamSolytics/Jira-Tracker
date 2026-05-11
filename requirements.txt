@@ -12,3 +12,5 @@ numpy>=1.26
 statsmodels>=0.14
 scipy>=1.11
 networkx>=3.2
+
+pymongo>=4.6

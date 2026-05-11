@@ -1,3 +1,4 @@
+import os
 from dash import html, dcc, Input, Output, State
 import plotly.graph_objects as go
 import numpy as np
@@ -216,7 +217,7 @@ Return ONLY valid JSON, no markdown:
         try:
             r=req.post("https://api.anthropic.com/v1/messages",
                        headers={"Content-Type":"application/json"},
-                       json={"model":"claude-sonnet-4-20250514","max_tokens":1500,
+                       json={"model":os.getenv("ANTHROPIC_MODEL","claude-sonnet-4-20250514"),"max_tokens":1500,
                              "messages":[{"role":"user","content":prompt}]},timeout=60)
             text=r.json()["content"][0]["text"].strip()
             if "```" in text: text=text.split("```")[1]; text=text[4:] if text.startswith("json") else text
@@ -281,13 +282,7 @@ Return ONLY valid JSON, no markdown:
             done=0
             for issue in open_i:
                 s=ct.get(issue["type"],{"median":14,"std":5})
-                # Log-normal: right-skewed like real cycle times
-                # mu/sigma derived from median and std of historical data
-                _med = max(1, s["median"] / vel)
-                _std = max(0.5, s.get("std", 5) * 0.5)
-                _mu  = np.log(_med**2 / np.sqrt(_std**2 + _med**2))
-                _sig = np.sqrt(np.log(1 + (_std/_med)**2))
-                sampled = max(1, int(np.random.lognormal(_mu, _sig)))
+                sampled=max(1,int(np.random.normal(s["median"]/vel,s.get("std",5)*0.5)))
                 remaining=issue.get("days_since_progress",0)
                 total=remaining+sampled
                 if issue.get("due"):
@@ -369,11 +364,7 @@ def _render_plan(plan,ct,a_stats,deadline,n_sims,sigma,bug_rate):
         for item in issues_est:
             s=ct.get(item["type"],{"median":item["estimate"],"std":item["estimate"]*0.4})
             std=s.get("std",3)*sigma
-            # Log-normal distribution — matches right-skewed IT cycle times
-            _med = max(1, s["median"])
-            _mu  = np.log(_med**2 / np.sqrt(std**2 + _med**2))
-            _sig = np.sqrt(np.log(1 + (std/_med)**2))
-            sampled = max(1, int(np.random.lognormal(_mu, _sig)))
+            sampled=max(1,int(np.random.normal(s["median"],std)))
             total_days+=sampled
         # Add bug buffer
         bug_extra=int(total_days*bug_rate*0.5)

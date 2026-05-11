@@ -1,7 +1,5 @@
-import os
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, dash_table
-from flask import request, Response
 import dash_cytoscape as cyto
 import plotly.graph_objects as go
 from collections import Counter, defaultdict
@@ -48,32 +46,7 @@ app = dash.Dash(__name__, suppress_callback_exceptions=True,
                 meta_tags=[{"name":"viewport","content":"width=device-width,initial-scale=1"}])
 app.title = "Delivery Intelligence Platform"
 server = app.server
-
-# ── Basic Auth ────────────────────────────────────────────────────────────────
-DASH_USER = os.getenv("DASH_USER", "solytics")
-DASH_PASS = os.getenv("DASH_PASS", "deliver2025")
-
-def check_auth(username, password):
-    return username == DASH_USER and password == DASH_PASS
-
-def authenticate():
-    return Response(
-        "Authentication required.", 401,
-        {"WWW-Authenticate": 'Basic realm="Delivery Intelligence Platform"'}
-    )
-
-@server.before_request
-def require_auth():
-    # Allow Dash internal routes through — they carry no user data
-    if request.path.startswith("/_dash-") or request.path.startswith("/assets"):
-        return None
-    auth = request.authorization
-    if not auth or not check_auth(auth.username, auth.password):
-        return authenticate()
-    return None
-
 threading.Thread(target=D.get_issues, daemon=True).start()
-# Pre-fetch changelog in background on startup (24h cache — real RTY data)
 threading.Thread(target=D.get_changelog, daemon=True).start()
 
 # ── Health score calculator ────────────────────────────────────
@@ -192,10 +165,12 @@ def filt(issues,labels,assignees,types,statuses,projects):
 )
 def route(path,issues,labels,assignees,types,statuses,projects):
     if not issues:
-        return html.Div([html.Div("◎",style={"fontSize":"3rem","color":C.ACCENT,"marginBottom":"12px"}),
-                         html.Div("Connecting to Jira...",style={"fontWeight":"800","color":C.NAVY,"fontSize":"1rem"}),
-                         html.Div("Auto-refreshes every 10 minutes.",style={"color":C.MUTED,"fontSize":"0.78rem","marginTop":"6px"})],
-                        style={"padding":"80px","textAlign":"center"}),""
+        sk = lambda h="60px": html.Div(className="skeleton",style={"height":h,"marginBottom":"12px"})
+        return html.Div([
+            html.Div("Connecting to Jira...",style={"fontWeight":"800","color":C.NAVY,"fontSize":"0.9rem","marginBottom":"20px"}),
+            sk("32px"),sk("180px"),sk("32px"),sk("280px"),sk("32px"),sk("120px"),
+            html.Div("Loading — auto-refreshes every few seconds.",style={"color":C.MUTED,"fontSize":"0.72rem","marginTop":"8px"}),
+        ],style={"padding":"40px 22px","maxWidth":"900px"}),""
     f=filt(issues,labels or [],assignees or [],types or [],statuses or [],projects or [])
     if path == "/executive-briefing": return FC_PAGE.layout(f), "Executive Intelligence Briefing"
     if path == "/sprint":       return SP_PAGE.layout(f), "Sprint Intelligence"
@@ -489,7 +464,7 @@ def page_deps(issues,_):
     ])
 
 def page_workflow(issues,_):
-    ORDER=["Groomed","To Do","Development In Progress","Fixing in Progress","Code Review","Integration Testing","Ready For QA Testing","QA Testing","UAT","Closed","Rejected"]
+    ORDER=["Groomed","To Do","Development In Progress","Code Review","Integration Testing","Fixing in Progress","Ready For QA Testing","QA Testing","Closed"]
     c=Counter(i["status"] for i in issues)
     avg_stale=defaultdict(list)
     for i in issues: avg_stale[i["status"]].append(i["days_since_progress"])
@@ -536,45 +511,6 @@ def page_alerts(issues,_):
                 ],style={"background":C.SURFACE if ri%2==0 else C.BG}) for ri,r in enumerate(rows)])],
                 style={"width":"100%","borderCollapse":"collapse","fontSize":"0.75rem"}),
             style={"marginBottom":"12px"})
-    # ── Workflow Compliance Checks (per Solytics JIRA Workflow doc) ──────────────
-    # Story/Task: To Do→Dev requires assignee, due date, story points, fix version, sprint
-    # story_points (customfield_10016) IS used on Truist tickets — re-enabled
-    missing_sp = [i for i in issues if i["type"] in ("Story","Task")
-                  and i["status"] not in ("Closed","Rejected","Groomed")
-                  and not i.get("has_story_points")]
-    missing_sprint=[i for i in issues if i["type"] in ("Story","Task","Bug","Sub-task","QA-Sub-task")
-                    and i["status"] not in ("Closed","Rejected","Groomed")
-                    and not i.get("sprint")]
-    # Time log required at: QA Testing→Closed AND QA Testing→UAT (per workflow doc)
-    missing_time = [i for i in issues
-                    if i["status"] in ("Closed", "UAT", "Ready For Deployment UAT")
-                    and i["type"] not in ("Epic",)
-                    and not i.get("time_logged")]
-    # NNG project: customfield_10050 (QA Tester) exists but not consistently used — skip check
-    missing_qa_tester = []
-    # RCA check: Bugs in/past QA Testing must have RCA in comments (per workflow doc)
-    RCA_KEYWORDS = ("rca", "root cause", "root-cause", "cause:", "analysis:")
-    missing_rca = [i for i in issues
-                   if i["type"] == "Bug"
-                   and i["status"] in ("QA Testing","UAT","Ready For QA Testing",
-                                       "Ready For Deployment UAT","Closed")
-                   and not any(k in (i.get("latest_comment","") or "").lower()
-                               for k in RCA_KEYWORDS)]
-    for i in missing_rca: i["_detail"] = "Bug in/past QA with no RCA in latest comment"
-
-    for i in missing_sp:      i["_detail"] = "No Story Points"
-    for i in missing_sprint:  i["_detail"] = "No Sprint assigned"
-    for i in missing_time:    i["_detail"] = "Closed without time log"
-    for i in missing_qa_tester: i["_detail"] = "No QA Tester assigned"
-
-    # Groomed→Rejected is valid ONLY for Bugs per workflow doc
-    # For all other types it indicates incorrect rejection — flag as alert
-    invalid_rejected = [i for i in issues
-                        if i["status"] == "Rejected"
-                        and i["type"] not in ("Bug",)
-                        and i.get("priority") not in ("Lowest","Low")]
-    for i in invalid_rejected: i["_detail"] = f"Rejected ({i['type']}) — only valid for Bugs per workflow"
-
     beyond_target_date=[i for i in issues if "Beyond Target Date" in i["due_flag"] and i["status"]!="Closed"]
     no_act=[i for i in issues if i["days_since_progress"]>7 and i["status"] not in ("Closed","Rejected")]
     unassigned=[i for i in issues if i["assignee"]=="Unassigned" and i["status"]!="Closed"]
@@ -583,39 +519,39 @@ def page_alerts(issues,_):
     for i in no_act: i["_detail"]=f"No update {i['days_since_progress']}d"
     for i in crit_bugs: i["_detail"]=f"{i['priority']} Bug"
     return html.Div([
-        html.Div([
-            C.kpi("Beyond Target Date",len(beyond_target_date),C.RED),
-            C.kpi("No Activity >7d",len(no_act),C.ORANGE),
-            C.kpi("Unassigned",len(unassigned),C.MUTED),
-            C.kpi("High Bugs",len(crit_bugs),"#DC2626"),
-            C.kpi("Missing Story Points",len(missing_sp),C.PURPLE),
-            C.kpi("Missing Sprint",len(missing_sprint),C.AMBER),
-            C.kpi("No Time Logged",len(missing_time),C.MUTED),
-            C.kpi("Missing QA Tester",len(missing_qa_tester),C.RED),
-            C.kpi("Invalid Rejected",len(invalid_rejected),C.ORANGE),
-            C.kpi("Missing RCA (Bugs)",len(missing_rca),C.RED),
-        ], style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"20px"}),
-        C.section("Delivery Alerts","Issues breaching SLA or process thresholds"),
-        _tbl("Beyond Target Date",beyond_target_date,C.RED),
-        _tbl("No Activity >7 Days",no_act,C.ORANGE),
-        _tbl("Unassigned",unassigned,C.MUTED),
-        _tbl("High/Highest Bugs",crit_bugs,"#DC2626"),
-        C.section("Workflow Compliance Violations","Per Solytics JIRA Workflow — mandatory field checks"),
-        _tbl("Missing Story Points (Story/Task in Dev)",missing_sp,C.PURPLE),
-        _tbl("Missing Sprint Assignment",missing_sprint,C.AMBER),
-        _tbl("Closed Without Time Log",missing_time,C.MUTED),
-        _tbl("Bug in QA Without QA Tester",missing_qa_tester,C.RED),
-        _tbl("Invalid Rejection (Non-Bug Rejected)",invalid_rejected,C.ORANGE),
-        _tbl("Bugs Missing RCA in QA/UAT/Closed",missing_rca,C.RED),
+        html.Div([C.kpi("Beyond Target Date",len(beyond_target_date),C.RED),C.kpi("No Activity >7d",len(no_act),C.ORANGE),
+                  C.kpi("Unassigned",len(unassigned),C.MUTED),C.kpi("High Bugs",len(crit_bugs),"#DC2626")],
+                 style={"display":"flex","gap":"10px","flexWrap":"wrap","marginBottom":"20px"}),
+        _tbl("Beyond Target Date Date",beyond_target_date,C.RED),_tbl("No Activity >7 Days",no_act,C.ORANGE),
+        _tbl("Unassigned",unassigned,C.MUTED),_tbl("High/Highest Bugs",crit_bugs,"#DC2626"),
     ])
 
 def page_settings(issues,_):
-    return html.Div([C.section("Configuration"),
-        C.card(html.Div("Tracked Labels",style={"color":C.MUTED,"fontSize":"0.62rem","fontWeight":"700","letterSpacing":"0.1em","textTransform":"uppercase","marginBottom":"10px"}),
-               html.Div([html.Span(l,style={"background":C.ACCENT2,"color":C.ACCENT,"borderRadius":"4px","padding":"3px 10px","fontSize":"0.72rem","fontWeight":"700","marginRight":"6px","marginBottom":"6px","display":"inline-block","fontFamily":"JetBrains Mono,monospace"}) for l in D.get_labels(issues)])),
-        C.card(*[html.Div([html.Span(k,style={"color":C.MUTED,"width":"160px","display":"inline-block","fontSize":"0.72rem","fontWeight":"700"}),
-                           html.Span(v,style={"color":C.TEXT,"fontSize":"0.76rem","fontFamily":"JetBrains Mono,monospace"})],style={"marginBottom":"8px"})
-                 for k,v in [("Jira URL",D.BASE_URL),("Projects",", ".join(D.PROJECTS)),("Auto-refresh","Every 10 minutes"),("Max Issues",str(D.MAX_ISSUES)),("Days Back",str(D.DAYS_BACK)),("Loaded",str(len(issues)))]])])
+    import os, six_sigma_engine as SS
+    sla_rows = [html.Div([
+        html.Span(f"{k}",style={"width":"120px","display":"inline-block","fontWeight":"700","fontSize":"0.75rem","color":C.NAVY}),
+        html.Span(f"{v}d",style={"color":C.ACCENT,"fontWeight":"800","fontFamily":"JetBrains Mono,monospace","marginRight":"12px"}),
+        html.Span(f"env: SLA_{k.upper().replace('-','_')}",style={"color":C.MUTED,"fontSize":"0.65rem"}),
+    ],style={"marginBottom":"7px"}) for k,v in SS.VOC_SLA.items()]
+    env_rows = [("Jira URL",D.BASE_URL),("Projects",", ".join(D.PROJECTS)),
+                ("Max Issues",str(D.MAX_ISSUES)),("Days Back",str(D.DAYS_BACK)),
+                ("Loaded",str(len(issues))),("Auto-refresh","Every 10 min"),
+                ("Store Backend","MongoDB" if os.getenv("MONGODB_URI") else "Local JSON (set MONGODB_URI for persistence)"),
+                ("Auth","Enabled" if os.getenv("DASH_USER") else "Default (set DASH_USER/DASH_PASS)"),
+                ("Anthropic Model",os.getenv("ANTHROPIC_MODEL","claude-sonnet-4-20250514"))]
+    return html.Div([
+        C.section("Configuration","Platform settings, SLA targets, and environment"),
+        C.grid(
+            C.card(html.Div("SLA TARGETS",style={"fontSize":"0.58rem","fontWeight":"800","letterSpacing":"0.16em","color":C.NAVY2,"marginBottom":"12px"}),
+                   html.Div("Used for Cpk, DPMO, and FMEA. Override via Render env vars — no redeploy needed.",style={"fontSize":"0.68rem","color":C.MUTED,"marginBottom":"10px"}),
+                   *sla_rows),
+            C.card(html.Div("TRACKED LABELS",style={"fontSize":"0.58rem","fontWeight":"800","letterSpacing":"0.16em","color":C.NAVY2,"marginBottom":"12px"}),
+                   html.Div([html.Span(l,style={"background":C.ACCENT2,"color":C.ACCENT,"borderRadius":"4px","padding":"3px 10px","fontSize":"0.72rem","fontWeight":"700","marginRight":"6px","marginBottom":"6px","display":"inline-block"}) for l in D.get_labels(issues)])),
+            cols=2
+        ),
+        C.card(*[html.Div([html.Span(k,style={"color":C.MUTED,"width":"200px","display":"inline-block","fontSize":"0.72rem","fontWeight":"700"}),
+                           html.Span(v,style={"color":C.TEXT,"fontSize":"0.76rem","fontFamily":"JetBrains Mono,monospace"})],style={"marginBottom":"8px"}) for k,v in env_rows]),
+    ])
 
 def page_standup(issues, _):
     return SL.layout(issues)
@@ -640,6 +576,10 @@ table th{padding:9px 12px;text-align:left;font-size:0.67rem;letter-spacing:0.08e
 table td{padding:8px 12px;border-bottom:1px solid #D4DFFF}
 table tr:hover td{background:#EEF4FF55!important}
 a:hover{opacity:0.8}nav a:hover{color:#7EA8E8!important;border-left-color:#2563EB!important;background:#1E356022}
+.nav-link[aria-current="page"]{border-left:3px solid #2563EB!important;color:#FFFFFF!important;background:rgba(37,99,235,0.12)}
+.skeleton{background:linear-gradient(90deg,#eef2ff 25%,#dde6ff 50%,#eef2ff 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media(max-width:768px){nav{display:none!important}}
 </style>
 </head>
 <body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body>

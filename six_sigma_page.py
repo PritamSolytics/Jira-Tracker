@@ -525,13 +525,14 @@ def _build_fmea_table(fmea):
         header,
         _g(fig, "ss-fmea-bar", h=280),
         html.Div(style={"marginTop": "12px"}),
-        html.Div(style={"overflowX": "auto"}),
+        html.Div([
         html.Table([
             html.Thead(html.Tr([
                 html.Th(h) for h in ["ID", "Process Step", "Failure Mode", "SEV", "OCC", "DET", "RPN", "Class", "Count", "Recommended Action"]
             ], style={"background": C.ACCENT2})),
             html.Tbody(rows),
-        ], style={"width": "100%", "borderCollapse": "collapse", "fontSize": "0.73rem"}),
+        ], style={"width": "100%", "borderCollapse": "collapse", "fontSize": "0.73rem"})
+        ], style={"overflowX": "auto"}),
     ])
 
 

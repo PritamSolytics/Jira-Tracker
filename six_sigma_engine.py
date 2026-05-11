@@ -26,15 +26,26 @@ warnings.filterwarnings("ignore")
 # CONSTANTS — VOC / SLA targets (days) per issue type
 # Adjust these to match your actual SLAs with Truist / US Bank
 # ──────────────────────────────────────────────────────────────────────────────
+import os as _os
+
+def _sla_env(key, default):
+    """Read SLA from env var — allows dynamic override without code change."""
+    try: return int(_os.getenv(f"SLA_{key.upper().replace('-','_')}", default))
+    except: return default
+
 VOC_SLA = {
-    "Bug":        23,   # p75 from NNG baseline — 15 closed issues
-    "Story":      32,   # p75 from NNG baseline — n=1, revisit when more data
-    "Task":       33,   # p75 from NNG baseline — 12 closed issues
-    "Sub-task":   30,   # p75 from NNG baseline — 71 closed issues (most reliable)
-    "Epic":       60,   # no closed epics yet — default estimate
-    "QA-Sub-task":55,   # p75 from NNG baseline — n=1, revisit when more data
+    "Bug":        _sla_env("BUG",        23),
+    "Story":      _sla_env("STORY",      32),
+    "Task":       _sla_env("TASK",       33),
+    "Sub-task":   _sla_env("SUB_TASK",   30),
+    "Epic":       _sla_env("EPIC",       60),
+    "QA-Sub-task":_sla_env("QA_SUB_TASK",55),
 }
-DEFAULT_SLA = 30  # fallback — aligned to Sub-task p75 as most common type
+DEFAULT_SLA = _sla_env("DEFAULT", 30)
+
+def update_sla(issue_type, days):
+    """Dynamically update SLA at runtime — called from Settings page."""
+    VOC_SLA[issue_type] = int(days)
 
 # Six Sigma DPMO → Sigma level lookup (standard table)
 SIGMA_TABLE = [

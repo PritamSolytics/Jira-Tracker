@@ -1,3 +1,7 @@
+import threading as _threading
+
+_train_state = {"running": False, "result": None, "error": None}
+
 """
 ml_page.py — Predictive Analytics Engine UI
 Slip predictor, risk clustering, outlier pattern detection, customizable training.
@@ -301,26 +305,53 @@ def register_callbacks(app, get_issues_fn):
     )
     def retrain(n, model_type, n_est, test_size, n_clusters, contamination, max_depth):
         if not n: return "", ""
-        try:
-            issues = get_issues_fn(force=True)
-            config = {
-                "model_type":    model_type    or "random_forest",
-                "n_estimators":  int(n_est)    if n_est else 200,
-                "test_size":     float(test_size) if test_size else 0.2,
-                "n_clusters":    int(n_clusters) if n_clusters else 3,
-                "contamination": float(contamination) if contamination else 0.1,
-                "max_depth":     int(max_depth) if max_depth else None,
-            }
-            meta = ML.train_models(issues, config=config)
-            if "error" in meta:
-                return f"Error: {meta['error']}", ""
-            return (f"Trained {meta['trained_at'][:19]}  |  "
-                    f"AUC {meta.get('auc_test','—')}  |  "
-                    f"n={meta.get('n_train','—')}  |  "
-                    f"Slip rate {meta.get('slip_rate','—')}%",
-                    "")
-        except Exception as e:
-            return f"Error: {str(e)[:120]}", ""
+
+        # If already running return status
+        if _train_state["running"]:
+            return "Training in progress...", ""
+
+        # If previous run finished — return result and reset
+        if _train_state["result"] is not None:
+            msg = _train_state["result"]
+            _train_state["result"] = None
+            return msg, ""
+        if _train_state["error"] is not None:
+            msg = _train_state["error"]
+            _train_state["error"] = None
+            return msg, ""
+
+        config = {
+            "model_type":    model_type    or "random_forest",
+            "n_estimators":  int(n_est)    if n_est else 200,
+            "test_size":     float(test_size) if test_size else 0.2,
+            "n_clusters":    int(n_clusters) if n_clusters else 3,
+            "contamination": float(contamination) if contamination else 0.1,
+            "max_depth":     int(max_depth) if max_depth else None,
+        }
+
+        def _run():
+            _train_state["running"] = True
+            _train_state["result"]  = None
+            _train_state["error"]   = None
+            try:
+                issues = get_issues_fn(force=True)
+                meta   = ML.train_models(issues, config=config)
+                if "error" in meta:
+                    _train_state["error"] = f"Error: {meta['error']}"
+                else:
+                    _train_state["result"] = (
+                        f"✓ Trained {meta['trained_at'][:19]}  |  "
+                        f"AUC {meta.get('auc_test','—')}  |  "
+                        f"n={meta.get('n_train','—')}  |  "
+                        f"Slip rate {meta.get('slip_rate','—')}%"
+                    )
+            except Exception as e:
+                _train_state["error"] = f"Error: {str(e)[:120]}"
+            finally:
+                _train_state["running"] = False
+
+        _threading.Thread(target=_run, daemon=True).start()
+        return "⏳ Training started — click again in ~10 seconds to see result.", ""
 
     @app.callback(
         Output("ml-download","data"),

@@ -119,6 +119,7 @@ TOPBAR = html.Div([
     html.Div(id="page-title",style={"fontWeight":"800","fontSize":"0.82rem","color":C.NAVY,"letterSpacing":"0.06em","textTransform":"uppercase"}),
     html.Div([
         dd("g-project","Project"), dd("g-label","Label"), dd("g-assignee","Assignee"),
+        dd("g-sprint","Sprint"),
         dd("g-type","Type",[{"label":t,"value":t} for t in ["Task","Story","Bug","Sub-task","Epic"]]),
         dd("g-status","Status",[{"label":s,"value":s} for s in C.STATUS_CLR]),
         html.Button("↻  Refresh",id="btn-refresh",n_clicks=0,style={"background":C.NAVY,"color":"#fff","border":"none","borderRadius":"6px","padding":"8px 14px","cursor":"pointer","fontSize":"0.73rem","fontWeight":"700"}),
@@ -138,28 +139,32 @@ app.layout = html.Div([
 @app.callback(
     Output("store-issues","data"),Output("nav-sync","children"),
     Output("g-label","options"),Output("g-assignee","options"),Output("g-project","options"),
+    Output("g-sprint","options"),
     Input("btn-refresh","n_clicks"),Input("auto-refresh","n_intervals"),Input("init-refresh","n_intervals"),
 )
 def load_data(n,_,init):
     force = callback_context.triggered_id=="btn-refresh"
     issues = D.get_issues(force=force)
-    if not issues: return [], "Synchronising with Jira...", [], [], []
+    if not issues: return [], "Synchronising with Jira...", [], [], [], []
     n = len(issues)
     full = n >= D.MAX_ISSUES
     status = "COMPLETE" if full else "PARTIAL — increase MAX_ISSUES or DAYS_BACK in Render env"
     indicator = f"Synced {D.last_sync()} | {n} issues | {status}"
+    sprints = sorted(set(i["sprint"] for i in issues if i.get("sprint")), reverse=True)
     return (issues, indicator,
             [{"label":l,"value":l} for l in D.get_labels(issues)],
             [{"label":a,"value":a} for a in D.get_assignees(issues)],
-            [{"label":p,"value":p} for p in D.get_projects(issues)])
+            [{"label":p,"value":p} for p in D.get_projects(issues)],
+            [{"label":s,"value":s} for s in sprints])
 
-def filt(issues,labels,assignees,types,statuses,projects):
+def filt(issues,labels,assignees,types,statuses,projects,sprints=None):
     r=issues
     if projects:  r=[i for i in r if i["project"] in projects]
     if labels:    r=[i for i in r if any(l in i["labels"] for l in labels)]
     if assignees: r=[i for i in r if i["assignee"] in assignees]
     if types:     r=[i for i in r if i["type"] in types]
     if statuses:  r=[i for i in r if i["status"] in statuses]
+    if sprints:   r=[i for i in r if i.get("sprint","") in sprints]
     return r
 
 @app.callback(
@@ -167,8 +172,9 @@ def filt(issues,labels,assignees,types,statuses,projects):
     Input("url","pathname"),Input("store-issues","data"),
     Input("g-label","value"),Input("g-assignee","value"),
     Input("g-type","value"),Input("g-status","value"),Input("g-project","value"),
+    Input("g-sprint","value"),
 )
-def route(path,issues,labels,assignees,types,statuses,projects):
+def route(path,issues,labels,assignees,types,statuses,projects,sprints):
     if not issues:
         sk = lambda h="60px": html.Div(className="skeleton",style={"height":h,"marginBottom":"12px"})
         return html.Div([
@@ -176,7 +182,7 @@ def route(path,issues,labels,assignees,types,statuses,projects):
             sk("32px"),sk("180px"),sk("32px"),sk("280px"),sk("32px"),sk("120px"),
             html.Div("Loading — auto-refreshes every few seconds.",style={"color":C.MUTED,"fontSize":"0.72rem","marginTop":"8px"}),
         ],style={"padding":"40px 22px","maxWidth":"900px"}),""
-    f=filt(issues,labels or [],assignees or [],types or [],statuses or [],projects or [])
+    f=filt(issues,labels or [],assignees or [],types or [],statuses or [],projects or [],sprints or [])
     if path == "/executive-briefing": return FC_PAGE.layout(f), "Executive Intelligence Briefing"
     if path == "/sprint":       return SP_PAGE.layout(f), "Sprint Intelligence"
     if path == "/intelligence": return INT_PAGE.layout(f), "Operational Intelligence"

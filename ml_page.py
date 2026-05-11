@@ -305,10 +305,10 @@ except Exception:
 def register_callbacks(app, get_issues_fn):
     from dash import Output, Input, State
     import ml_engine as ML
-try:
-    import mlops as MLOPS
-except Exception:
-    MLOPS = None
+    try:
+        import mlops as MLOPS
+    except Exception:
+        MLOPS = None
 
     @app.callback(
         Output("ml-retrain-status","children"),

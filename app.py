@@ -78,7 +78,10 @@ NAV_GROUPS = {
     "LEADERSHIP":  [("Executive Intelligence Briefing","/executive-briefing"),
                     ("Sprint Intelligence","/sprint")],
     "OVERVIEW":    [("Command Centre",       "/")],
-    "PEOPLE":      [("Capacity & Workstream Overview","/people")],
+    "PEOPLE":      [
+    ("Capacity & Workstream Overview", "/people"),
+    ("Resource Allocation",            "/resource-allocation"),
+],
     "INITIATIVES": [("Initiative Health",    "/initiatives")],
     "WORK":        [("Work Items",           "/items"),
                     ("Delivery Timeline",    "/timeline"),

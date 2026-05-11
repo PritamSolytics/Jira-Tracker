@@ -225,10 +225,22 @@ def get_changelog(force=False):
             for hist in r.json().get("changelog", {}).get("histories", []):
                 for item in hist.get("items", []):
                     if item.get("field") == "status":
+                        raw_ts = hist.get("created", "")
+                        # Convert full ISO timestamp to IST for display
+                        try:
+                            from datetime import timezone
+                            dt_utc = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                            dt_ist = dt_utc.astimezone(IST)
+                            ts_ist = dt_ist.strftime("%d %b %Y %H:%M IST")
+                            date_only = dt_ist.strftime("%Y-%m-%d")
+                        except Exception:
+                            ts_ist = raw_ts[:16]
+                            date_only = raw_ts[:10]
                         transitions.append({
-                            "from": item.get("fromString", ""),
-                            "to":   item.get("toString",   ""),
-                            "date": hist.get("created",    "")[:10],
+                            "from":      item.get("fromString", ""),
+                            "to":        item.get("toString",   ""),
+                            "date":      date_only,
+                            "timestamp": ts_ist,
                         })
             if transitions:
                 changelog_data[issue["key"]] = transitions

@@ -1,0 +1,65 @@
+name: ML Model Auto-Retrain
+
+on:
+  schedule:
+    # Runs every 12 hours — 6am and 6pm IST (00:30 and 12:30 UTC)
+    - cron: "30 0 * * *"
+    - cron: "30 12 * * *"
+  workflow_dispatch:
+    # Also allows manual trigger from GitHub Actions tab anytime
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            requests \
+            python-dotenv \
+            pandas \
+            numpy \
+            scikit-learn \
+            joblib \
+            statsmodels \
+            scipy \
+            networkx \
+            pymongo \
+            python-dateutil
+
+      - name: Run ML training pipeline
+        env:
+          JIRA_CLOUD_ID:   ${{ secrets.JIRA_CLOUD_ID }}
+          JIRA_BASE_URL:   ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL:      ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN:  ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT:    ${{ secrets.JIRA_PROJECT }}
+          MONGODB_URI:     ${{ secrets.MONGODB_URI }}
+          MONGODB_DB:      ${{ secrets.MONGODB_DB }}
+          MAX_ISSUES:      "2000"
+          DAYS_BACK:       "730"
+          MAX_CHANGELOG:   "0"
+          DATA_DIR:        "/tmp/jira_data"
+          MODEL_DIR:       "/tmp/jira_data/models"
+        run: |
+          python retrain_push.py
+
+      - name: Upload training log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrain-log-${{ github.run_number }}
+          path: /tmp/retrain_result.json
+          retention-days: 30

@@ -538,7 +538,7 @@ def page_settings(issues,_):
                 ("Loaded",str(len(issues))),("Auto-refresh","Every 10 min"),
                 ("Store Backend","MongoDB" if os.getenv("MONGODB_URI") else "Local JSON (set MONGODB_URI for persistence)"),
                 ("Auth","Enabled" if os.getenv("DASH_USER") else "Default (set DASH_USER/DASH_PASS)"),
-                ("Anthropic Model",os.getenv("ANTHROPIC_MODEL","claude-sonnet-4-20250514"))]
+                ("Groq Model",os.getenv("GROQ_MODEL","llama-3.3-70b-versatile"))]
     return html.Div([
         C.section("Configuration","Platform settings, SLA targets, and environment"),
         C.grid(

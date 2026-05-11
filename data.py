@@ -102,7 +102,7 @@ def _parse(raw):
         dd = date.fromisoformat(due)
         st = f.get("status", {}).get("name", "")
         if st == "Closed":         due_flag = "Closed"
-        elif dd < today:           due_flag = f"Past Due Date ({(today-dd).days}d)"
+        elif dd < today:           due_flag = f"Beyond Target Date ({(today-dd).days}d)"
         elif (dd-today).days <= 7: due_flag = "Due This Week"
         else:                      due_flag = "On Track"
     else:
@@ -141,10 +141,10 @@ def _parse(raw):
         "due":            due,
         "due_flag":       due_flag,
         "days_stale":     days_stale,
+        "days_since_progress": days_stale,
         "comments_count": len(comments),
         "latest_comment": latest_comment,
         "links":          links,
-        "sprint":         "",
         "fix_version":    ", ".join(v.get("name","") for v in (f.get("fixVersions") or [])),
         "parent":         (f.get("parent") or {}).get("key", ""),
         "url":            f"{BASE_URL}/browse/{raw['key']}",
@@ -250,5 +250,5 @@ def post_jira_comment(issue_key, text):
     basic = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
     headers = {"Authorization": f"Basic {basic}", "Accept":"application/json","Content-Type":"application/json"}
     body = {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":text}]}]}}
-    r = req.post(f"{API_BASE}/rest/api/3/issue/{issue_key}/comment", headers=headers, json=body, timeout=15)
+    r = req.post(f"{BASE_URL}/rest/api/3/issue/{issue_key}/comment", headers=headers, json=body, timeout=15)
     return r.status_code == 201

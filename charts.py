@@ -37,7 +37,7 @@ def bubble_chart(issues):
         if i["status"]=="Closed": continue
         a[i["assignee"]]["total"] += 1
         a[i["assignee"]]["stale"].append(i["days_stale"])
-        if "Past Due" in i["due_flag"]: a[i["assignee"]]["overdue"] += 1
+        if "Beyond Target Date" in i["due_flag"]: a[i["assignee"]]["overdue"] += 1
     names = list(a.keys())
     x = [a[n]["total"] for n in names]
     y = [round(sum(a[n]["stale"])/len(a[n]["stale"]),1) if a[n]["stale"] else 0 for n in names]

@@ -215,11 +215,34 @@ Team workload: {a_str}
 Return ONLY valid JSON, no markdown:
 {{"epic":{{"summary":"string","description":"string"}},"stories":[{{"summary":"string","description":"string","estimate_days":5,"assignee":"string","tasks":[{{"type":"Task","summary":"string","estimate_days":2}},{{"type":"Bug","summary":"string","estimate_days":1}}]}}],"total_days":14,"risk_notes":"string"}}"""
         try:
-            r=req.post("https://api.anthropic.com/v1/messages",
-                       headers={"Content-Type":"application/json"},
-                       json={"model":os.getenv("ANTHROPIC_MODEL","claude-sonnet-4-20250514"),"max_tokens":1500,
-                             "messages":[{"role":"user","content":prompt}]},timeout=60)
-            text=r.json()["content"][0]["text"].strip()
+            # ── Groq API (free — llama-3.3-70b) ──────────────────────────────
+            # Get key free at console.groq.com → set GROQ_API_KEY in Render
+            groq_key = os.getenv("GROQ_API_KEY","")
+            if not groq_key:
+                return html.Div([
+                    html.Div("GROQ_API_KEY not set.",style={"color":C.RED,"fontWeight":"700","fontSize":"0.74rem"}),
+                    html.Div("Get a free key at console.groq.com → set GROQ_API_KEY in Render env vars.",
+                             style={"color":C.MUTED,"fontSize":"0.7rem","marginTop":"4px"}),
+                ],style={"padding":"12px","background":"#FEF2F2","borderRadius":"6px"}), None
+
+            r=req.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Content-Type":"application/json",
+                    "Authorization":f"Bearer {groq_key}",
+                },
+                json={
+                    "model": os.getenv("GROQ_MODEL","llama-3.3-70b-versatile"),
+                    "max_tokens": 1500,
+                    "temperature": 0.3,
+                    "messages": [
+                        {"role":"system","content":"You are a delivery planning expert. Return only valid JSON, no markdown, no explanation."},
+                        {"role":"user","content":prompt},
+                    ],
+                },
+                timeout=60,
+            )
+            text=r.json()["choices"][0]["message"]["content"].strip()
             if "```" in text: text=text.split("```")[1]; text=text[4:] if text.startswith("json") else text
             plan=json.loads(text.strip())
             rendered=_render_plan(plan,ct,a_stats,deadline,int(n_sims or 500),float(sigma or 0.5),float(bug_rate or 0.2))

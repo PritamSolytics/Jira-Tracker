@@ -29,15 +29,19 @@ def _classify_issues(issues):
     parent_map = {i["key"]: i.get("parent","") for i in issues}
 
     def is_linked(issue):
+        # Issue itself is a story/epic — always linked
+        if issue.get("type") in ("Story","Epic"): return True
         # Direct parent is a story/epic
         parent = issue.get("parent","")
         if parent and parent in story_keys: return True
-        # Issue itself is a story/epic
-        if issue.get("type") in ("Story","Epic"): return True
-        # Has a link pointing to a story/epic
+        # Has a Jira link pointing to a story/epic
         for lnk in issue.get("links",[]):
             if lnk.get("key","") in story_keys: return True
-        return False
+        # Has a label that ties it to a release/initiative (e.g. R2_Truist)
+        # These are Solytics-convention labels that imply workstream membership
+        # but do NOT imply story linkage — they are still floating
+        # (NNG-25700 etc. have R2_Truist label but no parent/story link)
+        return False  # label alone is NOT sufficient for story linkage
 
     linked   = [i for i in issues if is_linked(i)]
     floating  = [i for i in issues if not is_linked(i) and i.get("type") not in ("Story","Epic")]

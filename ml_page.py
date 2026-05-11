@@ -162,6 +162,7 @@ def layout(issues):
             dcc.Loading(html.Div(id="ml-loading-output"), type="circle", color=C.ACCENT),
             html.Div(id="ml-retrain-status",
                      style={"fontSize":"0.74rem","color":C.GREEN,"fontWeight":"700","minHeight":"20px","marginTop":"8px"}),
+            dcc.Interval(id="ml-train-poll",interval=3000,n_intervals=0,disabled=True),
         ]),
     )
 
@@ -294,7 +295,9 @@ def register_callbacks(app, get_issues_fn):
     @app.callback(
         Output("ml-retrain-status","children"),
         Output("ml-loading-output","children"),
+        Output("ml-train-poll","disabled"),
         Input("ml-retrain-btn","n_clicks"),
+        Input("ml-train-poll","n_intervals"),
         State("ml-model-type","value"),
         State("ml-n-estimators","value"),
         State("ml-test-size","value"),
@@ -303,22 +306,25 @@ def register_callbacks(app, get_issues_fn):
         State("ml-max-depth","value"),
         prevent_initial_call=True,
     )
-    def retrain(n, model_type, n_est, test_size, n_clusters, contamination, max_depth):
-        if not n: return "", ""
+    def retrain(n, n_poll, model_type, n_est, test_size, n_clusters, contamination, max_depth):
+        from dash import ctx
+        triggered = ctx.triggered_id
 
-        # If already running return status
-        if _train_state["running"]:
-            return "Training in progress...", ""
+        # Poll tick — check if training finished
+        if triggered == "ml-train-poll":
+            if _train_state["running"]:
+                return "⏳ Training in progress...", "", False  # keep polling
+            if _train_state["result"] is not None:
+                msg = _train_state["result"]; _train_state["result"] = None
+                return msg, "", True  # stop polling
+            if _train_state["error"] is not None:
+                msg = _train_state["error"]; _train_state["error"] = None
+                return msg, "", True
+            return "", "", True
 
-        # If previous run finished — return result and reset
-        if _train_state["result"] is not None:
-            msg = _train_state["result"]
-            _train_state["result"] = None
-            return msg, ""
-        if _train_state["error"] is not None:
-            msg = _train_state["error"]
-            _train_state["error"] = None
-            return msg, ""
+        # Button click — start training
+        if not n: return "", "", True
+        if _train_state["running"]: return "⏳ Already training...", "", False
 
         config = {
             "model_type":    model_type    or "random_forest",
@@ -351,7 +357,7 @@ def register_callbacks(app, get_issues_fn):
                 _train_state["running"] = False
 
         _threading.Thread(target=_run, daemon=True).start()
-        return "⏳ Training started — click again in ~10 seconds to see result.", ""
+        return "⏳ Training started...", "", False  # enable polling
 
     @app.callback(
         Output("ml-download","data"),

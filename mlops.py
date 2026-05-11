@@ -235,7 +235,7 @@ def save_model_to_mongo(trained, split_meta, version=None):
     """
     if not _mongo_available():
         log.warning("MongoDB unavailable — saving to local disk only")
-        _save_local(trained)
+        _save_local(trained, split_meta)
         return None
 
     db = _db()
@@ -291,11 +291,11 @@ def save_model_to_mongo(trained, split_meta, version=None):
     log.info(f"Model saved: version={version} AUC={new_auc} GridFS_id={file_id}")
 
     # Also save local backup
-    _save_local(trained)
+    _save_local(trained, split_meta)
     return version
 
 
-def _save_local(trained):
+def _save_local(trained, split_meta=None):
     """Local disk backup."""
     import os
     MODEL_DIR = os.getenv("MODEL_DIR", os.path.join(os.getenv("DATA_DIR","data"),"models"))
@@ -306,10 +306,18 @@ def _save_local(trained):
     joblib.dump(trained["scaler"], os.path.join(MODEL_DIR,"scaler.pkl"))
     import json
     meta = {
-        "trained_at":      datetime.utcnow().isoformat(),
-        "features_used":   trained["feat_imp"] and list(trained["feat_imp"].keys()) or [],
-        "cluster_labels":  trained["cluster_labels"],
-        "feat_importance": trained["feat_imp"],
+        "trained_at":       datetime.utcnow().isoformat(),
+        "features_used":    list(trained["feat_imp"].keys()) if trained["feat_imp"] else [],
+        "feature_importance": trained["feat_imp"],
+        "cluster_labels":   trained["cluster_labels"],
+        "model_type":       trained["config"].get("model_type", "random_forest"),
+        "config":           trained["config"],
+        "contamination":    trained["config"].get("contamination", 0.1),
+        # split metadata
+        "n_train":          split_meta["n_train"]          if split_meta else None,
+        "n_test":           split_meta["n_test"]           if split_meta else None,
+        "slip_rate":        split_meta["slip_rate_train"]  if split_meta else None,
+        # all metrics: auc_test, f1_test, precision, recall, cv_auc_mean, cv_auc_std
         **trained["metrics"],
     }
     with open(os.path.join(MODEL_DIR,"meta.json"),"w") as f: json.dump(meta,f,indent=2)

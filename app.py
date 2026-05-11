@@ -3,8 +3,8 @@ from dash import dcc, html, Input, Output, State, callback_context, dash_table
 import dash_cytoscape as cyto
 import plotly.graph_objects as go
 from collections import Counter, defaultdict
-from datetime import date, timedelta
-import threading, math
+from datetime import date, timedelta, datetime
+import threading, math, os
 import ml_page as ML_PAGE
 import intelligence_page as INT_PAGE
 import executive_briefing_page as FC_PAGE
@@ -50,6 +50,50 @@ app.title = "Delivery Intelligence Platform"
 server = app.server
 threading.Thread(target=D.get_issues, daemon=True).start()
 threading.Thread(target=D.get_changelog, daemon=True).start()
+
+# ── Auto-retrain scheduler — runs every 24h in background ─────────────────────
+_retrain_state = {"last_run": None, "status": "Not yet run", "running": False}
+RETRAIN_INTERVAL_H = int(os.getenv("RETRAIN_INTERVAL_H", "24"))
+
+def _auto_retrain_loop():
+    import time as _time
+    # Wait 5 minutes after startup before first train — let Jira data load first
+    _time.sleep(300)
+    while True:
+        if not _retrain_state["running"]:
+            _retrain_state["running"] = True
+            _retrain_state["status"]  = "Running..."
+            try:
+                import mlops
+                issues = D.get_issues()
+                if issues:
+                    log.info(f"Auto-retrain starting — {len(issues)} issues")
+                    result = mlops.run_pipeline(issues=issues)
+                    if "error" in result:
+                        _retrain_state["status"] = f"Error: {result['error'][:80]}"
+                    elif "warning" in result:
+                        _retrain_state["status"] = f"Rolled back: {result['warning'][:80]}"
+                    else:
+                        _retrain_state["status"] = (
+                            f"✓ v{result.get('version','-')} | "
+                            f"AUC {result.get('auc_test','—')} | "
+                            f"F1 {result.get('f1_test','—')} | "
+                            f"n={result.get('n_train','—')}"
+                        )
+                    _retrain_state["last_run"] = datetime.now(tz=D.IST).strftime("%d %b %Y %H:%M IST")
+                    log.info(f"Auto-retrain complete: {_retrain_state['status']}")
+                else:
+                    _retrain_state["status"] = "Skipped — no issues loaded yet"
+            except Exception as e:
+                _retrain_state["status"] = f"Exception: {str(e)[:100]}"
+                log.error(f"Auto-retrain failed: {e}")
+            finally:
+                _retrain_state["running"] = False
+        # Sleep until next cycle
+        _time.sleep(RETRAIN_INTERVAL_H * 3600)
+
+threading.Thread(target=_auto_retrain_loop, daemon=True).start()
+log.info(f"Auto-retrain scheduler started — interval: {RETRAIN_INTERVAL_H}h")
 
 # ── Health score calculator ────────────────────────────────────
 def calc_health(issues):
@@ -149,7 +193,9 @@ def load_data(n,_,init):
     n = len(issues)
     full = n >= D.MAX_ISSUES
     status = "COMPLETE" if full else "PARTIAL — increase MAX_ISSUES or DAYS_BACK in Render env"
-    indicator = f"Synced {D.last_sync()} | {n} issues | {status}"
+    retrain_info = (f" | Model: {_retrain_state['status']}" if _retrain_state["last_run"]
+                    else " | Model: auto-retrains 5min after startup")
+    indicator = f"Synced {D.last_sync()} | {n} issues | {status}{retrain_info}"
     sprints = sorted(set(i["sprint"] for i in issues if i.get("sprint")), reverse=True)
     return (issues, indicator,
             [{"label":l,"value":l} for l in D.get_labels(issues)],

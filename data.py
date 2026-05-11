@@ -165,7 +165,10 @@ def get_issues(force=False):
     now = time.time()
     if force or now - _cache["ts"] > TTL or not _cache["data"]:
         try:
-            _cache["data"] = [_parse(i) for i in _fetch_all()]
+            import gc
+            raw = _fetch_all()
+            _cache["data"] = [_parse(i) for i in raw]
+            del raw; gc.collect()
             _cache["ts"] = now
             log.info(f"Cache updated: {len(_cache['data'])} issues")
         except Exception as e:
@@ -201,7 +204,8 @@ def get_changelog(force=False):
         return {}
 
     # Only fetch open issues — closed issues don't add new bounces
-    targets = [i for i in issues if i["status"] not in ("Closed", "Rejected")]
+    MAX_CHANGELOG = int(os.getenv("MAX_CHANGELOG", "30"))
+    targets = [i for i in issues if i["status"] not in ("Closed", "Rejected")][:MAX_CHANGELOG]
     log.info(f"Fetching changelog for {len(targets)} open issues...")
 
     changelog_data = {}

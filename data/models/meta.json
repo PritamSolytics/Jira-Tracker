@@ -1,0 +1,44 @@
+{
+  "trained_at": "2026-05-11T09:27:54.765793",
+  "features_used": [
+    "priority_score",
+    "type_risk",
+    "is_unassigned",
+    "has_due",
+    "days_open",
+    "label_count",
+    "link_count",
+    "blocker_count",
+    "blocked_count",
+    "comment_count",
+    "degree_centrality",
+    "betweenness_centrality",
+    "allocation_density"
+  ],
+  "cluster_labels": {
+    "1": "Critical",
+    "0": "Elevated",
+    "2": "Standard"
+  },
+  "feat_importance": {
+    "priority_score": 0.094,
+    "type_risk": 0.0674,
+    "is_unassigned": 0.0056,
+    "has_due": 0.0,
+    "days_open": 0.2341,
+    "label_count": 0.0902,
+    "link_count": 0.0362,
+    "blocker_count": 0.0058,
+    "blocked_count": 0.0056,
+    "comment_count": 0.2237,
+    "degree_centrality": 0.0309,
+    "betweenness_centrality": 0.0,
+    "allocation_density": 0.2064
+  },
+  "auc_test": 0.7935,
+  "f1_test": 0.2857,
+  "precision": 0.5,
+  "recall": 0.2,
+  "cv_auc_mean": 0.8124,
+  "cv_auc_std": 0.0519
+}

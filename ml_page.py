@@ -42,6 +42,10 @@ def _metric(label, value, color=C.ACCENT):
 
 def layout(issues):
     import ml_engine as ML
+try:
+    import mlops as MLOPS
+except Exception:
+    MLOPS = None
     meta  = ML.get_meta()
     ready = ML.models_exist()
 
@@ -91,6 +95,14 @@ def layout(issues):
         )
 
     # ── Training configuration card ────────────────────────────────────────────
+    # ── Model Registry ──────────────────────────────────────────────────────
+    active_run = {}
+    if MLOPS:
+        try:
+            runs = MLOPS.get_model_registry()
+            active_run = next((r for r in runs if r.get("status")=="active"), {})
+        except Exception: pass
+
     train_card = C.card(
         html.Div("MODEL TRAINING CONFIGURATION",
                  style={"fontSize":"0.55rem","fontWeight":"800","letterSpacing":"0.18em","color":C.NAVY2,"marginBottom":"14px"}),
@@ -148,7 +160,7 @@ def layout(issues):
         ], style={"display":"flex","gap":"24px","flexWrap":"wrap","marginBottom":"16px"}),
 
         html.Div([
-            html.Button("Train Model", id="ml-retrain-btn", n_clicks=0, style={
+            html.Button("⟳ Run Pipeline Now", id="ml-retrain-btn", n_clicks=0, style={
                 "background":C.NAVY,"color":"#fff","border":"none","borderRadius":"6px",
                 "padding":"10px 24px","cursor":"pointer","fontSize":"0.74rem",
                 "fontWeight":"800","letterSpacing":"0.06em","marginRight":"10px"}),
@@ -160,9 +172,11 @@ def layout(issues):
         ]),
         html.Div([
             dcc.Loading(html.Div(id="ml-loading-output"), type="circle", color=C.ACCENT),
+            html.Div("Train locally: python mlops.py --run pipeline | Set ENABLE_MANUAL_TRAIN=true to trigger from UI",
+                     style={"fontSize":"0.63rem","color":C.MUTED,"fontFamily":"JetBrains Mono,monospace","marginBottom":"6px"}),
+            dcc.Interval(id="ml-train-poll",interval=3000,n_intervals=0,disabled=True),
             html.Div(id="ml-retrain-status",
                      style={"fontSize":"0.74rem","color":C.GREEN,"fontWeight":"700","minHeight":"20px","marginTop":"8px"}),
-            dcc.Interval(id="ml-train-poll",interval=3000,n_intervals=0,disabled=True),
         ]),
     )
 
@@ -291,13 +305,15 @@ def layout(issues):
 def register_callbacks(app, get_issues_fn):
     from dash import Output, Input, State
     import ml_engine as ML
+try:
+    import mlops as MLOPS
+except Exception:
+    MLOPS = None
 
     @app.callback(
         Output("ml-retrain-status","children"),
         Output("ml-loading-output","children"),
-        Output("ml-train-poll","disabled"),
         Input("ml-retrain-btn","n_clicks"),
-        Input("ml-train-poll","n_intervals"),
         State("ml-model-type","value"),
         State("ml-n-estimators","value"),
         State("ml-test-size","value"),
@@ -306,25 +322,22 @@ def register_callbacks(app, get_issues_fn):
         State("ml-max-depth","value"),
         prevent_initial_call=True,
     )
-    def retrain(n, n_poll, model_type, n_est, test_size, n_clusters, contamination, max_depth):
-        from dash import ctx
-        triggered = ctx.triggered_id
+    def retrain(n, model_type, n_est, test_size, n_clusters, contamination, max_depth):
+        if not n: return "", ""
 
-        # Poll tick — check if training finished
-        if triggered == "ml-train-poll":
-            if _train_state["running"]:
-                return "⏳ Training in progress...", "", False  # keep polling
-            if _train_state["result"] is not None:
-                msg = _train_state["result"]; _train_state["result"] = None
-                return msg, "", True  # stop polling
-            if _train_state["error"] is not None:
-                msg = _train_state["error"]; _train_state["error"] = None
-                return msg, "", True
-            return "", "", True
+        # If already running return status
+        if _train_state["running"]:
+            return "Training in progress...", ""
 
-        # Button click — start training
-        if not n: return "", "", True
-        if _train_state["running"]: return "⏳ Already training...", "", False
+        # If previous run finished — return result and reset
+        if _train_state["result"] is not None:
+            msg = _train_state["result"]
+            _train_state["result"] = None
+            return msg, ""
+        if _train_state["error"] is not None:
+            msg = _train_state["error"]
+            _train_state["error"] = None
+            return msg, ""
 
         config = {
             "model_type":    model_type    or "random_forest",
@@ -340,16 +353,19 @@ def register_callbacks(app, get_issues_fn):
             _train_state["result"]  = None
             _train_state["error"]   = None
             try:
+                import mlops
                 issues = get_issues_fn(force=True)
-                meta   = ML.train_models(issues, config=config)
+                meta   = mlops.run_pipeline(issues=issues, config=config)
                 if "error" in meta:
                     _train_state["error"] = f"Error: {meta['error']}"
+                elif "warning" in meta:
+                    _train_state["result"] = f"⚠ {meta['warning']}"
                 else:
                     _train_state["result"] = (
-                        f"✓ Trained {meta['trained_at'][:19]}  |  "
-                        f"AUC {meta.get('auc_test','—')}  |  "
-                        f"n={meta.get('n_train','—')}  |  "
-                        f"Slip rate {meta.get('slip_rate','—')}%"
+                        f"✓ v{meta.get('version','-')} | "
+                        f"AUC {meta.get('auc_test','—')} | "
+                        f"F1 {meta.get('f1_test','—')} | "
+                        f"n={meta.get('n_train','—')}"
                     )
             except Exception as e:
                 _train_state["error"] = f"Error: {str(e)[:120]}"
@@ -357,7 +373,7 @@ def register_callbacks(app, get_issues_fn):
                 _train_state["running"] = False
 
         _threading.Thread(target=_run, daemon=True).start()
-        return "⏳ Training started...", "", False  # enable polling
+        return "⏳ Training started — click again in ~10 seconds to see result.", ""
 
     @app.callback(
         Output("ml-download","data"),

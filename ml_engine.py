@@ -258,8 +258,14 @@ def load_models():
 
 
 def predict_slip(issues, models=None):
-    if models is None: models = load_models()
-    clf, scaler, km, iso = models["rf"], models["scaler"], models["km"], models["iso"]
+    if models is None:
+        clf, km, iso, scaler, meta = load_models()
+    else:
+        clf    = models.get("rf") or models.get("clf")
+        km     = models.get("km")
+        iso    = models.get("iso")
+        scaler = models.get("scaler")
+        meta   = models
     if clf is None or scaler is None: return []
 
     open_issues = [i for i in issues if i.get("status") != "Closed"]
@@ -302,7 +308,34 @@ def get_meta():
 
 
 def models_exist():
+    """Check MongoDB first, then local disk."""
+    try:
+        import mlops
+        bundle, run = mlops.load_model_from_mongo()
+        if bundle: return True
+    except Exception: pass
     return os.path.exists(os.path.join(MODEL_DIR, "slip_predictor.pkl"))
+
+
+def load_models():
+    """Load model bundle — MongoDB first, local disk fallback."""
+    try:
+        import mlops
+        bundle, run = mlops.load_model_from_mongo()
+        if bundle:
+            return bundle["clf"], bundle["km"], bundle["iso"], bundle["scaler"], run or {}
+    except Exception as e:
+        log.warning(f"MongoDB model load failed: {e}")
+    # Local fallback
+    try:
+        clf    = joblib.load(os.path.join(MODEL_DIR,"slip_predictor.pkl"))
+        km     = joblib.load(os.path.join(MODEL_DIR,"kmeans.pkl"))
+        iso    = joblib.load(os.path.join(MODEL_DIR,"isolation_forest.pkl"))
+        scaler = joblib.load(os.path.join(MODEL_DIR,"scaler.pkl"))
+        meta   = get_meta()
+        return clf, km, iso, scaler, meta
+    except Exception:
+        return None, None, None, None, {}
 
 
 def get_dataset():

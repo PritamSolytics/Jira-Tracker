@@ -13,3 +13,19 @@ services:
         sync: false
       - key: JIRA_PROJECT
         value: NNG
+      - key: MAX_ISSUES
+        value: "500"
+      - key: DAYS_BACK
+        value: "180"
+      - key: MAX_CHANGELOG
+        value: "30"
+      - key: DASH_USER
+        sync: false
+      - key: DASH_PASS
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: ENABLE_MANUAL_TRAIN
+        value: "false"

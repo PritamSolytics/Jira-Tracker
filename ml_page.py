@@ -42,10 +42,10 @@ def _metric(label, value, color=C.ACCENT):
 
 def layout(issues):
     import ml_engine as ML
-try:
-    import mlops as MLOPS
-except Exception:
-    MLOPS = None
+    try:
+        import mlops as MLOPS
+    except Exception:
+        MLOPS = None
     meta  = ML.get_meta()
     ready = ML.models_exist()
 
